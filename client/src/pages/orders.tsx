@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { useOrders, useCreateOrder, useUpdateOrderStatus } from "@/hooks/use-orders";
 import { useCustomers, useCreateCustomer } from "@/hooks/use-customers";
 import { Label } from "@/components/ui/label";
@@ -30,7 +30,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, ShoppingCart, Trash2, CheckCircle, XCircle, Clock, Package, Truck } from "lucide-react";
+import { Plus, ShoppingCart, Trash2, CheckCircle, XCircle, Clock, Package, Truck, ChevronDown, ChevronRight, FileText } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
@@ -77,10 +77,23 @@ function getStatusLabel(status: string) {
 export default function Orders() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<string>("new");
+  const [expandedOrders, setExpandedOrders] = useState<Set<number>>(new Set());
   const { data: orders, isLoading } = useOrders();
   const updateStatus = useUpdateOrderStatus();
   const { toast } = useToast();
   const { formatCurrency } = useCurrency();
+
+  const toggleExpanded = (orderId: number) => {
+    setExpandedOrders(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(orderId)) {
+        newSet.delete(orderId);
+      } else {
+        newSet.add(orderId);
+      }
+      return newSet;
+    });
+  };
 
   const handleStatusUpdate = async (id: number, status: string) => {
     try {
@@ -148,23 +161,45 @@ export default function Orders() {
                   ) : filteredOrders.length === 0 ? (
                     <TableRow><TableCell colSpan={7} className="h-24 text-center text-muted-foreground">No {status.label.toLowerCase()} orders.</TableCell></TableRow>
                   ) : (
-                    filteredOrders.map((order) => (
-                      <TableRow key={order.id} className="group" data-testid={`order-row-${order.id}`}>
-                        <TableCell className="font-mono text-xs text-muted-foreground">#{order.id}</TableCell>
-                        <TableCell className="font-medium">{order.customer?.name}</TableCell>
-                        <TableCell className="text-muted-foreground text-sm max-w-[200px] truncate">{order.customer?.address || '-'}</TableCell>
-                        <TableCell className="text-muted-foreground text-sm">{format(new Date(order.createdAt!), 'MMM dd, yyyy')}</TableCell>
-                        <TableCell className="font-mono font-medium">{formatCurrency(order.totalAmount)}</TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className={cn("capitalize", getStatusBadgeStyle(normalizeStatus(order.status)))}>
-                            {getStatusLabel(normalizeStatus(order.status))}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <OrderActions order={order} onStatusUpdate={handleStatusUpdate} />
-                        </TableCell>
-                      </TableRow>
-                    ))
+                    filteredOrders.map((order) => {
+                      const isExpanded = expandedOrders.has(order.id);
+                      return (
+                        <React.Fragment key={order.id}>
+                          <TableRow 
+                            key={order.id} 
+                            className="group cursor-pointer hover:bg-muted/30" 
+                            data-testid={`order-row-${order.id}`}
+                            onClick={() => toggleExpanded(order.id)}
+                          >
+                            <TableCell className="font-mono text-xs text-muted-foreground">
+                              <div className="flex items-center gap-2">
+                                {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                                #{order.id}
+                              </div>
+                            </TableCell>
+                            <TableCell className="font-medium">{order.customer?.name}</TableCell>
+                            <TableCell className="text-muted-foreground text-sm max-w-[200px] truncate">{order.customer?.address || '-'}</TableCell>
+                            <TableCell className="text-muted-foreground text-sm">{format(new Date(order.createdAt!), 'MMM dd, yyyy')}</TableCell>
+                            <TableCell className="font-mono font-medium">{formatCurrency(order.totalAmount)}</TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className={cn("capitalize", getStatusBadgeStyle(normalizeStatus(order.status)))}>
+                                {getStatusLabel(normalizeStatus(order.status))}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                              <OrderActions order={order} onStatusUpdate={handleStatusUpdate} />
+                            </TableCell>
+                          </TableRow>
+                          {isExpanded && (
+                            <TableRow key={`${order.id}-details`} className="bg-muted/20 hover:bg-muted/20">
+                              <TableCell colSpan={7} className="p-4">
+                                <OrderDetails order={order} formatCurrency={formatCurrency} />
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </React.Fragment>
+                      );
+                    })
                   )}
                 </TableBody>
               </Table>
@@ -214,6 +249,68 @@ function OrderActions({ order, onStatusUpdate }: { order: any; onStatusUpdate: (
           <XCircle className="w-4 h-4" />
         </Button>
       )}
+    </div>
+  );
+}
+
+function OrderDetails({ order, formatCurrency }: { order: any; formatCurrency: (cents: number) => string }) {
+  const items = order.items || [];
+  
+  return (
+    <div className="space-y-4">
+      <div className="text-sm font-medium">Order Items</div>
+      {items.length === 0 ? (
+        <div className="text-sm text-muted-foreground">No items in this order.</div>
+      ) : (
+        <div className="space-y-2">
+          {items.map((item: any) => {
+            const hasDiscount = item.discount > 0;
+            const effectivePrice = item.unitPrice - item.discount;
+            const lineTotal = effectivePrice * item.quantity;
+            
+            return (
+              <div key={item.id} className="flex items-center justify-between p-3 bg-background rounded-lg border">
+                <div className="flex-1">
+                  <div className="font-medium">{item.product?.name || `Product #${item.productId}`}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {formatCurrency(item.unitPrice)} each
+                    {hasDiscount && (
+                      <span className="text-green-600 ml-2">
+                        (-{formatCurrency(item.discount)} discount)
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-4">
+                  <div className="text-sm">
+                    <span className="text-muted-foreground">Qty:</span> {item.quantity}
+                  </div>
+                  <div className="font-mono font-medium w-24 text-right">
+                    {formatCurrency(lineTotal)}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      
+      {order.note && (
+        <div className="mt-4 p-3 bg-background rounded-lg border">
+          <div className="flex items-center gap-2 text-sm font-medium mb-1">
+            <FileText className="w-4 h-4" />
+            Order Note
+          </div>
+          <div className="text-sm text-muted-foreground whitespace-pre-wrap">{order.note}</div>
+        </div>
+      )}
+      
+      <div className="flex justify-end pt-2 border-t">
+        <div className="text-right">
+          <div className="text-sm text-muted-foreground">Total</div>
+          <div className="text-lg font-bold font-mono">{formatCurrency(order.totalAmount)}</div>
+        </div>
+      </div>
     </div>
   );
 }
