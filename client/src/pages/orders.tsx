@@ -181,7 +181,7 @@ export default function Orders() {
                             </TableCell>
                             <TableCell className="font-medium">{order.customer?.name}</TableCell>
                             <TableCell className="text-muted-foreground text-sm max-w-[200px] truncate">{order.customer?.address || '-'}</TableCell>
-                            <TableCell className="text-muted-foreground text-sm">{format(new Date(order.createdAt!), 'MMM dd, yyyy')}</TableCell>
+                            <TableCell className="text-muted-foreground text-sm">{format(new Date(order.orderDate!), 'MMM dd, yyyy')}</TableCell>
                             <TableCell className="font-mono font-medium">{formatCurrency(order.totalAmount)}</TableCell>
                             <TableCell>
                               <Badge variant="outline" className={cn("capitalize", getStatusBadgeStyle(normalizeStatus(order.status)))}>
@@ -393,6 +393,7 @@ function EditOrderDialog({ order, open, onOpenChange }: { order: any; open: bool
   const editOrder = useEditOrder();
   
   const [note, setNote] = useState(order?.note || "");
+  const [orderDate, setOrderDate] = useState(() => order?.orderDate ? format(new Date(order.orderDate), "yyyy-MM-dd") : format(new Date(), "yyyy-MM-dd"));
   const [items, setItems] = useState<{ id: number; productName: string; unitPrice: number; quantity: number; discountPercent: number }[]>([]);
   
   useEffect(() => {
@@ -405,6 +406,7 @@ function EditOrderDialog({ order, open, onOpenChange }: { order: any; open: bool
         discountPercent: item.unitPrice > 0 ? Math.round((item.discount / item.unitPrice) * 100) : 0,
       })));
       setNote(order.note || "");
+      setOrderDate(order.orderDate ? format(new Date(order.orderDate), "yyyy-MM-dd") : format(new Date(), "yyyy-MM-dd"));
     }
   }, [order]);
   
@@ -428,6 +430,7 @@ function EditOrderDialog({ order, open, onOpenChange }: { order: any; open: bool
         id: order.id,
         data: {
           note: note || undefined,
+          orderDate: orderDate,
           items: items.map(item => ({
             id: item.id,
             quantity: item.quantity,
@@ -509,6 +512,17 @@ function EditOrderDialog({ order, open, onOpenChange }: { order: any; open: bool
               placeholder="Add special instructions or notes..."
               rows={3}
               data-testid="input-edit-order-note"
+            />
+          </div>
+
+          <div>
+            <Label>Order Date</Label>
+            <Input 
+              type="date"
+              value={orderDate}
+              onChange={(e) => setOrderDate(e.target.value)}
+              className="w-full"
+              data-testid="input-edit-order-date"
             />
           </div>
           
@@ -643,6 +657,7 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
   const [newCustomerAddress, setNewCustomerAddress] = useState("");
   const [orderNote, setOrderNote] = useState("");
   const [paymentStatus, setPaymentStatus] = useState<"COD" | "Bank Transfer/QR" | "Credit">("Credit");
+  const [orderDate, setOrderDate] = useState(() => format(new Date(), "yyyy-MM-dd"));
   
   const { data: customers } = useCustomers();
   const { data: products } = useProducts();
@@ -726,7 +741,8 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
           discountPercent: item.discountPercent > 0 ? item.discountPercent : undefined
         })),
         note: orderNote.trim() || undefined,
-        paymentStatus: paymentStatus
+        paymentStatus: paymentStatus,
+        orderDate: orderDate
       });
       toast({ title: "Order created successfully!" });
       onOpenChange(false);
@@ -736,6 +752,7 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
       setCart([]);
       setOrderNote("");
       setPaymentStatus("Credit");
+      setOrderDate(format(new Date(), "yyyy-MM-dd"));
     } catch (error: any) {
       toast({ title: "Failed to create order", description: error.message, variant: "destructive" });
     }
@@ -987,6 +1004,18 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
                     ? "Customer will pay later. You can add payment in the ledger later."
                     : "Payment will be recorded automatically in the customer's ledger."}
                 </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="order-date" className="text-sm">Order Date</Label>
+                <Input 
+                  id="order-date"
+                  type="date"
+                  value={orderDate}
+                  onChange={(e) => setOrderDate(e.target.value)}
+                  className="w-full"
+                  data-testid="input-order-date"
+                />
               </div>
 
               <div className="border-t pt-4">

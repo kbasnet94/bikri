@@ -172,7 +172,7 @@ export async function registerRoutes(
     try {
       const businessId = req.user.businessId;
       const input = api.orders.create.input.parse(req.body);
-      const order = await storage.createOrder(businessId, input.customerId, input.items, input.note, input.paymentStatus);
+      const order = await storage.createOrder(businessId, input.customerId, input.items, input.note, input.paymentStatus, input.orderDate);
       res.status(201).json(order);
     } catch (err) {
       if (err instanceof z.ZodError) {

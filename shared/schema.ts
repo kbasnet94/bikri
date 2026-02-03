@@ -166,6 +166,7 @@ export type CreateOrderRequest = {
   }[];
   note?: string; // optional order note
   paymentStatus: PaymentStatusType; // required payment status
+  orderDate?: string; // optional ISO date string, defaults to now
 };
 export const updateOrderSchema = z.object({
   status: z.enum(ORDER_STATUS_VALUES)
@@ -179,6 +180,7 @@ export type UpdatePaymentStatusRequest = z.infer<typeof updatePaymentStatusSchem
 
 export const editOrderSchema = z.object({
   note: z.string().optional(),
+  orderDate: z.string().optional(), // ISO date string
   items: z.array(z.object({
     id: z.number(), // existing order item ID
     quantity: z.number().min(1),

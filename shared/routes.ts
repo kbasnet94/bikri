@@ -180,6 +180,7 @@ export const api = {
         })),
         note: z.string().optional(), // optional order note
         paymentStatus: z.enum(PAYMENT_STATUS_VALUES), // COD, Bank Transfer/QR, Credit
+        orderDate: z.string().optional(), // ISO date string, defaults to now
       }),
       responses: {
         201: z.custom<typeof orders.$inferSelect>(),

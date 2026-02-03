@@ -30,10 +30,10 @@ export interface IStorage {
   // Orders
   getOrders(businessId: string, query?: { customerId?: number }): Promise<OrderResponse[]>;
   getOrder(businessId: string, id: number): Promise<OrderResponse | undefined>;
-  createOrder(businessId: string, customerId: number, items: { productId: number; quantity: number; discountPercent?: number }[], note?: string, paymentStatus?: string): Promise<Order>;
+  createOrder(businessId: string, customerId: number, items: { productId: number; quantity: number; discountPercent?: number }[], note?: string, paymentStatus?: string, orderDate?: string): Promise<Order>;
   updateOrderStatus(businessId: string, id: number, status: string): Promise<Order | undefined>;
   updatePaymentStatus(businessId: string, id: number, newPaymentStatus: string): Promise<Order | undefined>;
-  editOrder(businessId: string, id: number, data: { note?: string; items: { id: number; quantity: number; discountPercent: number }[] }): Promise<OrderResponse | undefined>;
+  editOrder(businessId: string, id: number, data: { note?: string; orderDate?: string; items: { id: number; quantity: number; discountPercent: number }[] }): Promise<OrderResponse | undefined>;
 
   // Ledger
   getLedgerEntries(businessId: string, customerId: number): Promise<LedgerEntry[]>;
@@ -168,7 +168,7 @@ export class DatabaseStorage implements IStorage {
     });
   }
 
-  async createOrder(businessId: string, customerId: number, items: { productId: number; quantity: number; discountPercent?: number }[], note?: string, paymentStatus: string = "Credit"): Promise<Order> {
+  async createOrder(businessId: string, customerId: number, items: { productId: number; quantity: number; discountPercent?: number }[], note?: string, paymentStatus: string = "Credit", orderDate?: string): Promise<Order> {
     let totalAmount = 0;
     const finalItems: { productId: number; quantity: number; unitPrice: number; discount: number }[] = [];
 
@@ -205,7 +205,7 @@ export class DatabaseStorage implements IStorage {
         status: "new",
         paymentStatus,
         note: note || null,
-        orderDate: new Date()
+        orderDate: orderDate ? new Date(orderDate) : new Date()
       }).returning();
 
       for (const item of finalItems) {
@@ -339,7 +339,7 @@ export class DatabaseStorage implements IStorage {
     });
   }
 
-  async editOrder(businessId: string, id: number, data: { note?: string; items: { id: number; quantity: number; discountPercent: number }[] }): Promise<OrderResponse | undefined> {
+  async editOrder(businessId: string, id: number, data: { note?: string; orderDate?: string; items: { id: number; quantity: number; discountPercent: number }[] }): Promise<OrderResponse | undefined> {
     return await db.transaction(async (tx) => {
       // First verify the order belongs to this business
       const existingOrder = await tx.query.orders.findFirst({
@@ -368,12 +368,19 @@ export class DatabaseStorage implements IStorage {
           .where(eq(orderItems.id, itemUpdate.id));
       }
 
-      // Update order note and total
+      // Update order note, date, and total
+      const updateData: { note?: string | null; orderDate?: Date; totalAmount: number } = {
+        totalAmount: newTotal
+      };
+      if (data.note !== undefined) {
+        updateData.note = data.note;
+      }
+      if (data.orderDate) {
+        updateData.orderDate = new Date(data.orderDate);
+      }
+      
       await tx.update(orders)
-        .set({ 
-          note: data.note !== undefined ? data.note : existingOrder.note,
-          totalAmount: newTotal 
-        })
+        .set(updateData)
         .where(and(eq(orders.id, id), eq(orders.businessId, businessId)));
 
       // Return the updated order
