@@ -584,6 +584,7 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
   const [newCustomerEmail, setNewCustomerEmail] = useState("");
   const [newCustomerAddress, setNewCustomerAddress] = useState("");
   const [orderNote, setOrderNote] = useState("");
+  const [paymentStatus, setPaymentStatus] = useState<"COD" | "Bank Transfer/QR" | "Credit">("Credit");
   
   const { data: customers } = useCustomers();
   const { data: products } = useProducts();
@@ -666,7 +667,8 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
           quantity: item.quantity,
           discountPercent: item.discountPercent > 0 ? item.discountPercent : undefined
         })),
-        note: orderNote.trim() || undefined
+        note: orderNote.trim() || undefined,
+        paymentStatus: paymentStatus
       });
       toast({ title: "Order created successfully!" });
       onOpenChange(false);
@@ -675,6 +677,7 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
       setCustomerId("");
       setCart([]);
       setOrderNote("");
+      setPaymentStatus("Credit");
     } catch (error: any) {
       toast({ title: "Failed to create order", description: error.message, variant: "destructive" });
     }
@@ -907,6 +910,25 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
                   rows={3}
                   data-testid="input-order-note"
                 />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="payment-status" className="text-sm">Payment Status</Label>
+                <Select value={paymentStatus} onValueChange={(val: "COD" | "Bank Transfer/QR" | "Credit") => setPaymentStatus(val)}>
+                  <SelectTrigger id="payment-status" data-testid="select-payment-status">
+                    <SelectValue placeholder="Select payment status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="COD">COD (Cash on Delivery)</SelectItem>
+                    <SelectItem value="Bank Transfer/QR">Bank Transfer / QR Payment</SelectItem>
+                    <SelectItem value="Credit">Credit (Pay Later)</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  {paymentStatus === "Credit" 
+                    ? "Customer will pay later. You can add payment in the ledger later."
+                    : "Payment will be recorded automatically in the customer's ledger."}
+                </p>
               </div>
 
               <div className="border-t pt-4">
