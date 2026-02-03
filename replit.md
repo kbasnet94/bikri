@@ -38,13 +38,16 @@ Preferred communication style: Simple, everyday language.
 - **Features**: Login, Registration, and Password Setup for legacy SSO users
 - **Implementation**: Custom auth in `server/replit_integrations/auth/`
 
-### Business Accounts (Multi-User)
-- **Structure**: One business account can have multiple users
+### Business Accounts (Multi-Tenancy)
+- **Structure**: One business account can have multiple users; all data is scoped to a business
+- **Data Isolation**: Categories, products, customers, and orders are all scoped to a business account via `businessId`
 - **User Roles**: `owner` (full access), `admin` (can manage users/settings), `member` (read/write access)
 - **Registration**: New users can optionally create a business during registration
 - **User Management**: Owners/admins can add users by email; new users set their password via "Set Password" flow
 - **Security**: Cross-business user reassignment is prevented - users already belonging to another business cannot be added
 - **Currency Settings**: Businesses can set their preferred currency (USD, EUR, GBP, INR, AED, SAR, PKR, BDT, CNY, JPY, CAD, AUD)
+- **API Protection**: All data endpoints require authentication and a valid business association; requests without a business return 403
+- **SKU Uniqueness**: SKU codes are unique per-business only (different businesses can have same SKU)
 - **API Endpoints**:
   - `GET /api/business` - Get current user's business
   - `PUT /api/business` - Update business name (owner/admin only)
