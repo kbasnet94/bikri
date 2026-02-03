@@ -165,7 +165,7 @@ export const api = {
         items: z.array(z.object({
           productId: z.number(),
           quantity: z.number(),
-          discount: z.number().optional(), // discount in cents per unit
+          discountPercent: z.number().min(0).max(100).optional(), // discount as percentage (0-100)
         })),
       }),
       responses: {

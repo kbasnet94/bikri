@@ -29,7 +29,7 @@ export interface IStorage {
   // Orders
   getOrders(query?: { customerId?: number }): Promise<OrderResponse[]>;
   getOrder(id: number): Promise<OrderResponse | undefined>;
-  createOrder(customerId: number, items: { productId: number; quantity: number; discount?: number }[]): Promise<Order>;
+  createOrder(customerId: number, items: { productId: number; quantity: number; discountPercent?: number }[]): Promise<Order>;
   updateOrderStatus(id: number, status: string): Promise<Order | undefined>;
 
   // Ledger
@@ -174,7 +174,7 @@ export class DatabaseStorage implements IStorage {
     });
   }
 
-  async createOrder(customerId: number, items: { productId: number; quantity: number; discount?: number }[]): Promise<Order> {
+  async createOrder(customerId: number, items: { productId: number; quantity: number; discountPercent?: number }[]): Promise<Order> {
     // 1. Calculate total and verify stock
     let totalAmount = 0;
     const finalItems: { productId: number; quantity: number; unitPrice: number; discount: number }[] = [];
@@ -190,15 +190,17 @@ export class DatabaseStorage implements IStorage {
         if (!product) throw new Error(`Product ${item.productId} not found`);
         if (product.stockQuantity < item.quantity) throw new Error(`Insufficient stock for ${product.name}`);
 
-        const discount = item.discount || 0;
-        const effectivePrice = Math.max(0, product.price - discount);
+        // Calculate discount amount from percentage
+        const discountPercent = Math.min(100, Math.max(0, item.discountPercent || 0));
+        const discountAmount = Math.round(product.price * discountPercent / 100);
+        const effectivePrice = Math.max(0, product.price - discountAmount);
         const itemTotal = effectivePrice * item.quantity;
         totalAmount += itemTotal;
         finalItems.push({
           productId: item.productId,
           quantity: item.quantity,
           unitPrice: product.price,
-          discount: discount
+          discount: discountAmount // Store calculated discount amount in cents
         });
 
         // Decrement stock

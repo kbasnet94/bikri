@@ -219,7 +219,7 @@ function ProductRow({
   product, 
   isInCart, 
   cartQuantity, 
-  cartDiscount,
+  cartDiscountPercent,
   formatCurrency, 
   onAdd, 
   onRemove 
@@ -227,15 +227,16 @@ function ProductRow({
   product: any; 
   isInCart: boolean;
   cartQuantity: number;
-  cartDiscount: number;
+  cartDiscountPercent: number;
   formatCurrency: (cents: number) => string;
-  onAdd: (quantity: number, discount: number) => void;
+  onAdd: (quantity: number, discountPercent: number) => void;
   onRemove: () => void;
 }) {
   const [quantity, setQuantity] = useState(cartQuantity);
-  const [discount, setDiscount] = useState(cartDiscount);
+  const [discountPercent, setDiscountPercent] = useState(cartDiscountPercent);
   
-  const effectivePrice = Math.max(0, product.price - discount);
+  const discountAmount = Math.round(product.price * discountPercent / 100);
+  const effectivePrice = Math.max(0, product.price - discountAmount);
   const lineTotal = effectivePrice * quantity;
   
   return (
@@ -266,15 +267,16 @@ function ProductRow({
               />
             </div>
             <div className="flex flex-col items-center">
-              <span className="text-[10px] text-muted-foreground mb-1">Discount</span>
+              <span className="text-[10px] text-muted-foreground mb-1">Disc %</span>
               <Input 
                 type="number" 
-                value={discount / 100} 
-                onChange={(e) => setDiscount(Math.max(0, (parseFloat(e.target.value) || 0) * 100))} 
-                className="w-20 h-8 text-center"
+                value={discountPercent} 
+                onChange={(e) => setDiscountPercent(Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)))} 
+                className="w-16 h-8 text-center"
                 min={0}
-                step={0.01}
-                placeholder="0.00"
+                max={100}
+                step={1}
+                placeholder="0"
                 data-testid={`input-discount-${product.id}`}
               />
             </div>
@@ -282,8 +284,8 @@ function ProductRow({
           
           <div className="text-right min-w-[80px]">
             <div className="font-mono font-medium text-sm">{formatCurrency(lineTotal)}</div>
-            {discount > 0 && (
-              <div className="text-[10px] text-green-600">-{formatCurrency(discount * quantity)}</div>
+            {discountPercent > 0 && (
+              <div className="text-[10px] text-green-600">-{discountPercent}%</div>
             )}
           </div>
           
@@ -300,7 +302,7 @@ function ProductRow({
           ) : (
             <Button 
               size="sm" 
-              onClick={() => onAdd(quantity, discount)} 
+              onClick={() => onAdd(quantity, discountPercent)} 
               disabled={product.stockQuantity === 0}
               data-testid={`button-add-product-${product.id}`}
             >
@@ -317,7 +319,7 @@ function ProductRow({
 function CreateOrderDialog({ open, onOpenChange }: any) {
   const [step, setStep] = useState(1);
   const [customerId, setCustomerId] = useState<string>("");
-  const [cart, setCart] = useState<{ productId: number; quantity: number; discount: number; product: any }[]>([]);
+  const [cart, setCart] = useState<{ productId: number; quantity: number; discountPercent: number; product: any }[]>([]);
   const [customerSearch, setCustomerSearch] = useState("");
   const [showNewCustomerForm, setShowNewCustomerForm] = useState(false);
   const [newCustomerName, setNewCustomerName] = useState("");
@@ -360,13 +362,13 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
     }
   };
 
-  const addToCart = (product: any, quantity: number, discount: number) => {
+  const addToCart = (product: any, quantity: number, discountPercent: number) => {
     if (quantity < 1) return;
     const existing = cart.find(item => item.productId === product.id);
     if (existing) {
-      setCart(cart.map(item => item.productId === product.id ? { ...item, quantity, discount } : item));
+      setCart(cart.map(item => item.productId === product.id ? { ...item, quantity, discountPercent } : item));
     } else {
-      setCart([...cart, { productId: product.id, quantity, discount, product }]);
+      setCart([...cart, { productId: product.id, quantity, discountPercent, product }]);
     }
   };
 
@@ -379,13 +381,14 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
     setCart(cart.map(item => item.productId === productId ? { ...item, quantity: qty } : item));
   };
 
-  const updateDiscount = (productId: number, discount: number) => {
-    if (discount < 0) return;
-    setCart(cart.map(item => item.productId === productId ? { ...item, discount } : item));
+  const updateDiscountPercent = (productId: number, discountPercent: number) => {
+    if (discountPercent < 0 || discountPercent > 100) return;
+    setCart(cart.map(item => item.productId === productId ? { ...item, discountPercent } : item));
   };
 
   const totalAmount = cart.reduce((sum, item) => {
-    const effectivePrice = Math.max(0, item.product.price - item.discount);
+    const discountAmount = Math.round(item.product.price * item.discountPercent / 100);
+    const effectivePrice = Math.max(0, item.product.price - discountAmount);
     return sum + (effectivePrice * item.quantity);
   }, 0);
 
@@ -398,7 +401,7 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
         items: cart.map(item => ({ 
           productId: item.productId, 
           quantity: item.quantity,
-          discount: item.discount > 0 ? item.discount : undefined
+          discountPercent: item.discountPercent > 0 ? item.discountPercent : undefined
         }))
       });
       toast({ title: "Order created successfully!" });
@@ -543,9 +546,9 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
                       product={p} 
                       isInCart={isInCart}
                       cartQuantity={cartItem?.quantity || 1}
-                      cartDiscount={cartItem?.discount || 0}
+                      cartDiscountPercent={cartItem?.discountPercent || 0}
                       formatCurrency={formatCurrency}
-                      onAdd={(qty, discount) => addToCart(p, qty, discount)}
+                      onAdd={(qty, discountPercent) => addToCart(p, qty, discountPercent)}
                       onRemove={() => removeFromCart(p.id)}
                     />
                   );
@@ -560,7 +563,8 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
               
               <div className="space-y-3">
                 {cart.map(item => {
-                  const effectivePrice = Math.max(0, item.product.price - item.discount);
+                  const discountAmount = Math.round(item.product.price * item.discountPercent / 100);
+                  const effectivePrice = Math.max(0, item.product.price - discountAmount);
                   const lineTotal = effectivePrice * item.quantity;
                   return (
                     <div key={item.productId} className="flex items-center justify-between p-3 bg-muted/20 rounded-lg">
@@ -568,8 +572,8 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
                         <div className="font-medium">{item.product.name}</div>
                         <div className="text-xs text-muted-foreground">
                           {formatCurrency(item.product.price)} each
-                          {item.discount > 0 && (
-                            <span className="text-green-600 ml-2">(-{formatCurrency(item.discount)} discount)</span>
+                          {item.discountPercent > 0 && (
+                            <span className="text-green-600 ml-2">(-{item.discountPercent}% = {formatCurrency(discountAmount)} off)</span>
                           )}
                         </div>
                       </div>
@@ -585,14 +589,15 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
                           />
                         </div>
                         <div className="flex flex-col items-center">
-                          <span className="text-[10px] text-muted-foreground">Discount</span>
+                          <span className="text-[10px] text-muted-foreground">Disc %</span>
                           <Input 
                             type="number" 
-                            value={item.discount / 100} 
-                            onChange={(e) => updateDiscount(item.productId, Math.max(0, (parseFloat(e.target.value) || 0) * 100))} 
-                            className="w-20 h-8 text-center"
+                            value={item.discountPercent} 
+                            onChange={(e) => updateDiscountPercent(item.productId, Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)))} 
+                            className="w-16 h-8 text-center"
                             min={0}
-                            step={0.01}
+                            max={100}
+                            step={1}
                           />
                         </div>
                         <div className="font-mono font-medium w-20 text-right">
@@ -608,10 +613,13 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
               </div>
 
               <div className="border-t pt-4">
-                {cart.some(item => item.discount > 0) && (
+                {cart.some(item => item.discountPercent > 0) && (
                   <div className="flex justify-between items-center text-sm text-green-600 mb-2">
                     <div>Total Discounts</div>
-                    <div className="font-mono">-{formatCurrency(cart.reduce((sum, item) => sum + (item.discount * item.quantity), 0))}</div>
+                    <div className="font-mono">-{formatCurrency(cart.reduce((sum, item) => {
+                      const discountAmount = Math.round(item.product.price * item.discountPercent / 100);
+                      return sum + (discountAmount * item.quantity);
+                    }, 0))}</div>
                   </div>
                 )}
                 <div className="flex justify-between items-center">
