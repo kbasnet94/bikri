@@ -137,6 +137,7 @@ export default function Customers() {
 function CreateCustomerDialog({ open, onOpenChange }: any) {
   const { toast } = useToast();
   const createCustomer = useCreateCustomer();
+  const { symbol } = useCurrency();
   
   const form = useForm({
     resolver: zodResolver(insertCustomerSchema),
@@ -151,7 +152,8 @@ function CreateCustomerDialog({ open, onOpenChange }: any) {
 
   const onSubmit = async (values: any) => {
     try {
-      await createCustomer.mutateAsync(values);
+      const creditLimitInCents = Math.round(values.creditLimit * 100);
+      await createCustomer.mutateAsync({ ...values, creditLimit: creditLimitInCents });
       toast({ title: "Customer created successfully" });
       onOpenChange(false);
       form.reset();
@@ -219,8 +221,8 @@ function CreateCustomerDialog({ open, onOpenChange }: any) {
               name="creditLimit"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Credit Limit (cents)</FormLabel>
-                  <FormControl><Input type="number" {...field} onChange={e => field.onChange(parseInt(e.target.value))} /></FormControl>
+                  <FormLabel>Credit Limit ({symbol})</FormLabel>
+                  <FormControl><Input type="number" step="0.01" min="0" placeholder="0.00" {...field} onChange={e => field.onChange(parseFloat(e.target.value) || 0)} /></FormControl>
                   <FormMessage />
                 </FormItem>
               )}
@@ -240,7 +242,7 @@ function CustomerDetailsDialog({ customer, open, onOpenChange }: any) {
   const createLedgerEntry = useCreateLedgerEntry();
   const { toast } = useToast();
   const [isAddingEntry, setIsAddingEntry] = useState(false);
-  const { formatCurrency, formatCurrencyShort } = useCurrency();
+  const { formatCurrency, formatCurrencyShort, symbol } = useCurrency();
 
   const entryForm = useForm({
     resolver: zodResolver(insertLedgerEntrySchema),
@@ -254,7 +256,8 @@ function CustomerDetailsDialog({ customer, open, onOpenChange }: any) {
 
   const onEntrySubmit = async (values: any) => {
     try {
-      await createLedgerEntry.mutateAsync(values);
+      const amountInCents = Math.round(values.amount * 100);
+      await createLedgerEntry.mutateAsync({ ...values, amount: amountInCents });
       toast({ title: "Entry added successfully" });
       setIsAddingEntry(false);
       entryForm.reset({ customerId: customer.id, type: "credit", amount: 0, description: "" });
@@ -338,8 +341,8 @@ function CustomerDetailsDialog({ customer, open, onOpenChange }: any) {
                         name="amount"
                         render={({ field }) => (
                           <FormItem className="flex-1 w-full">
-                            <FormLabel>Amount (cents)</FormLabel>
-                            <FormControl><Input type="number" {...field} onChange={e => field.onChange(parseInt(e.target.value))} /></FormControl>
+                            <FormLabel>Amount ({symbol})</FormLabel>
+                            <FormControl><Input type="number" step="0.01" min="0" placeholder="0.00" {...field} onChange={e => field.onChange(parseFloat(e.target.value) || 0)} /></FormControl>
                           </FormItem>
                         )}
                       />
