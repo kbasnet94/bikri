@@ -38,3 +38,25 @@ export function useCreateCategory() {
     },
   });
 }
+
+export function useDeleteCategory() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const res = await fetch(`/api/categories/${id}`, {
+        method: 'DELETE',
+        credentials: "include",
+      });
+      if (!res.ok) {
+        if (res.status === 404) {
+          throw new Error("Category not found");
+        }
+        throw new Error("Failed to delete category");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [api.categories.list.path] });
+    },
+  });
+}

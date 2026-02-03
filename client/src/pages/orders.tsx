@@ -134,6 +134,7 @@ export default function Orders() {
                   <TableRow className="bg-muted/30">
                     <TableHead>Order ID</TableHead>
                     <TableHead>Customer</TableHead>
+                    <TableHead>Address</TableHead>
                     <TableHead>Date</TableHead>
                     <TableHead>Total</TableHead>
                     <TableHead>Status</TableHead>
@@ -142,14 +143,15 @@ export default function Orders() {
                 </TableHeader>
                 <TableBody>
                   {isLoading ? (
-                    <TableRow><TableCell colSpan={6} className="h-24 text-center">Loading orders...</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={7} className="h-24 text-center">Loading orders...</TableCell></TableRow>
                   ) : filteredOrders.length === 0 ? (
-                    <TableRow><TableCell colSpan={6} className="h-24 text-center text-muted-foreground">No {status.label.toLowerCase()} orders.</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={7} className="h-24 text-center text-muted-foreground">No {status.label.toLowerCase()} orders.</TableCell></TableRow>
                   ) : (
                     filteredOrders.map((order) => (
                       <TableRow key={order.id} className="group" data-testid={`order-row-${order.id}`}>
                         <TableCell className="font-mono text-xs text-muted-foreground">#{order.id}</TableCell>
                         <TableCell className="font-medium">{order.customer?.name}</TableCell>
+                        <TableCell className="text-muted-foreground text-sm max-w-[200px] truncate">{order.customer?.address || '-'}</TableCell>
                         <TableCell className="text-muted-foreground text-sm">{format(new Date(order.createdAt!), 'MMM dd, yyyy')}</TableCell>
                         <TableCell className="font-mono font-medium">{formatCurrency(order.totalAmount)}</TableCell>
                         <TableCell>
@@ -325,6 +327,7 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
   const [newCustomerName, setNewCustomerName] = useState("");
   const [newCustomerPhone, setNewCustomerPhone] = useState("");
   const [newCustomerEmail, setNewCustomerEmail] = useState("");
+  const [newCustomerAddress, setNewCustomerAddress] = useState("");
   
   const { data: customers } = useCustomers();
   const { data: products } = useProducts();
@@ -350,12 +353,14 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
         name: newCustomerName.trim(),
         phone: newCustomerPhone.trim() || null,
         email: newCustomerEmail.trim() || null,
+        address: newCustomerAddress.trim() || null,
       });
       setCustomerId(newCustomer.id.toString());
       setShowNewCustomerForm(false);
       setNewCustomerName("");
       setNewCustomerPhone("");
       setNewCustomerEmail("");
+      setNewCustomerAddress("");
       toast({ title: "Customer created successfully!" });
     } catch (error: any) {
       toast({ title: "Failed to create customer", description: error.message, variant: "destructive" });
@@ -483,6 +488,16 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
                             data-testid="input-new-customer-email"
                           />
                         </div>
+                      </div>
+                      <div>
+                        <Label htmlFor="new-customer-address" className="text-xs">Address</Label>
+                        <Input 
+                          id="new-customer-address"
+                          placeholder="Customer address" 
+                          value={newCustomerAddress}
+                          onChange={(e) => setNewCustomerAddress(e.target.value)}
+                          data-testid="input-new-customer-address"
+                        />
                       </div>
                     </div>
                     <Button 

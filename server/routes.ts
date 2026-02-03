@@ -42,6 +42,16 @@ export async function registerRoutes(
     }
   });
 
+  app.delete(api.categories.delete.path, isAuthenticated, requireBusiness, async (req: any, res) => {
+    const businessId = req.user.businessId;
+    const id = parseInt(req.params.id);
+    const deleted = await storage.deleteCategory(businessId, id);
+    if (!deleted) {
+      return res.status(404).json({ message: "Category not found" });
+    }
+    res.status(200).json({ success: true });
+  });
+
   // Products
   app.get(api.products.list.path, isAuthenticated, requireBusiness, async (req: any, res) => {
     const businessId = req.user.businessId;

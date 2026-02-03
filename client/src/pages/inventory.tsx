@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useProducts, useCreateProduct, useUpdateProduct, useDeleteProduct } from "@/hooks/use-products";
-import { useCategories } from "@/hooks/use-categories";
+import { useCategories, useCreateCategory, useDeleteCategory } from "@/hooks/use-categories";
 import { useCurrency } from "@/hooks/use-currency";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,7 +27,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Search, Pencil, Trash2, Filter } from "lucide-react";
+import { Plus, Search, Pencil, Trash2, Filter, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -192,6 +192,11 @@ function ProductDialog({ open, onOpenChange, mode, defaultValues, categories }: 
   const { toast } = useToast();
   const createProduct = useCreateProduct();
   const updateProduct = useUpdateProduct();
+  const createCategory = useCreateCategory();
+  const deleteCategory = useDeleteCategory();
+  const [showNewCategory, setShowNewCategory] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [showCategoryManager, setShowCategoryManager] = useState(false);
   
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -201,9 +206,35 @@ function ProductDialog({ open, onOpenChange, mode, defaultValues, categories }: 
       description: "",
       price: 0,
       stockQuantity: 0,
-      categoryId: null, // Allow null for categoryId
+      categoryId: null,
     },
   });
+
+  const handleCreateCategory = async () => {
+    if (!newCategoryName.trim()) return;
+    try {
+      const newCat = await createCategory.mutateAsync({ name: newCategoryName.trim() });
+      form.setValue("categoryId", newCat.id);
+      setNewCategoryName("");
+      setShowNewCategory(false);
+      toast({ title: "Category created" });
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    }
+  };
+
+  const handleDeleteCategory = async (catId: number) => {
+    if (!confirm("Delete this category? Products using it will become uncategorized.")) return;
+    try {
+      await deleteCategory.mutateAsync(catId);
+      if (form.getValues("categoryId") === catId) {
+        form.setValue("categoryId", null);
+      }
+      toast({ title: "Category deleted" });
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    }
+  };
 
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
     try {
@@ -223,7 +254,7 @@ function ProductDialog({ open, onOpenChange, mode, defaultValues, categories }: 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[425px]">
+      <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
           <DialogTitle>{mode === "create" ? "Add New Product" : "Edit Product"}</DialogTitle>
         </DialogHeader>
@@ -235,7 +266,7 @@ function ProductDialog({ open, onOpenChange, mode, defaultValues, categories }: 
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Name</FormLabel>
-                  <FormControl><Input placeholder="Product Name" {...field} /></FormControl>
+                  <FormControl><Input placeholder="Product Name" {...field} data-testid="input-product-name" /></FormControl>
                   <FormMessage />
                 </FormItem>
               )}
@@ -247,23 +278,35 @@ function ProductDialog({ open, onOpenChange, mode, defaultValues, categories }: 
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>SKU</FormLabel>
-                    <FormControl><Input placeholder="SKU-123" {...field} /></FormControl>
+                    <FormControl><Input placeholder="SKU-123" {...field} data-testid="input-product-sku" /></FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
               />
-               <FormField
+              <FormField
                 control={form.control}
                 name="categoryId"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Category</FormLabel>
+                    <FormLabel className="flex items-center justify-between">
+                      <span>Category</span>
+                      <Button 
+                        type="button" 
+                        variant="ghost" 
+                        size="sm" 
+                        className="h-auto p-0 text-xs text-primary hover:text-primary/80"
+                        onClick={() => setShowCategoryManager(!showCategoryManager)}
+                        data-testid="button-manage-categories"
+                      >
+                        {showCategoryManager ? "Hide" : "Manage"}
+                      </Button>
+                    </FormLabel>
                     <Select 
                       onValueChange={(val) => field.onChange(val ? Number(val) : null)} 
                       value={field.value?.toString()}
                     >
                       <FormControl>
-                        <SelectTrigger>
+                        <SelectTrigger data-testid="select-category">
                           <SelectValue placeholder="Select Category" />
                         </SelectTrigger>
                       </FormControl>
@@ -278,6 +321,74 @@ function ProductDialog({ open, onOpenChange, mode, defaultValues, categories }: 
                 )}
               />
             </div>
+            
+            {showCategoryManager && (
+              <div className="border rounded-lg p-3 bg-muted/30 space-y-3">
+                <div className="text-sm font-medium">Manage Categories</div>
+                
+                {!showNewCategory ? (
+                  <Button 
+                    type="button" 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={() => setShowNewCategory(true)}
+                    data-testid="button-add-category"
+                  >
+                    <Plus className="w-3 h-3 mr-1" />
+                    Add Category
+                  </Button>
+                ) : (
+                  <div className="flex gap-2">
+                    <Input 
+                      placeholder="Category name" 
+                      value={newCategoryName}
+                      onChange={(e) => setNewCategoryName(e.target.value)}
+                      className="flex-1"
+                      data-testid="input-new-category-name"
+                    />
+                    <Button 
+                      type="button" 
+                      size="sm" 
+                      onClick={handleCreateCategory}
+                      disabled={createCategory.isPending}
+                      data-testid="button-save-category"
+                    >
+                      {createCategory.isPending ? "..." : "Save"}
+                    </Button>
+                    <Button 
+                      type="button" 
+                      variant="ghost" 
+                      size="icon"
+                      onClick={() => { setShowNewCategory(false); setNewCategoryName(""); }}
+                    >
+                      <X className="w-4 h-4" />
+                    </Button>
+                  </div>
+                )}
+                
+                {categories.length > 0 && (
+                  <div className="space-y-1 max-h-[120px] overflow-y-auto">
+                    {categories.map((c: any) => (
+                      <div key={c.id} className="flex items-center justify-between py-1 px-2 rounded hover:bg-muted/50">
+                        <span className="text-sm">{c.name}</span>
+                        <Button 
+                          type="button"
+                          variant="ghost" 
+                          size="icon" 
+                          className="h-6 w-6 text-destructive hover:text-destructive"
+                          onClick={() => handleDeleteCategory(c.id)}
+                          disabled={deleteCategory.isPending}
+                          data-testid={`button-delete-category-${c.id}`}
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            
             <div className="grid grid-cols-2 gap-4">
               <FormField
                 control={form.control}
@@ -285,7 +396,7 @@ function ProductDialog({ open, onOpenChange, mode, defaultValues, categories }: 
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Price (cents)</FormLabel>
-                    <FormControl><Input type="number" {...field} /></FormControl>
+                    <FormControl><Input type="number" {...field} data-testid="input-product-price" /></FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -296,7 +407,7 @@ function ProductDialog({ open, onOpenChange, mode, defaultValues, categories }: 
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Stock</FormLabel>
-                    <FormControl><Input type="number" {...field} /></FormControl>
+                    <FormControl><Input type="number" {...field} data-testid="input-product-stock" /></FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -308,12 +419,12 @@ function ProductDialog({ open, onOpenChange, mode, defaultValues, categories }: 
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Description</FormLabel>
-                  <FormControl><Input placeholder="Optional description..." {...field} value={field.value || ''} /></FormControl>
+                  <FormControl><Input placeholder="Optional description..." {...field} value={field.value || ''} data-testid="input-product-description" /></FormControl>
                   <FormMessage />
                 </FormItem>
               )}
             />
-            <Button type="submit" className="w-full" disabled={createProduct.isPending || updateProduct.isPending}>
+            <Button type="submit" className="w-full" disabled={createProduct.isPending || updateProduct.isPending} data-testid="button-save-product">
               {createProduct.isPending || updateProduct.isPending ? "Saving..." : "Save Product"}
             </Button>
           </form>
