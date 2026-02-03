@@ -2,7 +2,18 @@
 
 ## Overview
 
-Bikri is a full-stack wholesale business management application built for tracking inventory, managing customer credit accounts, and processing orders. The system provides a dashboard with analytics (including monthly revenue), inventory management with categories, customer ledger tracking, and order processing with status updates. The app supports light/dark mode switching.
+Bikri is a full-stack wholesale business management application built for tracking inventory, managing customer credit accounts, and processing orders. The system provides a dashboard with analytics (including monthly revenue), inventory management with categories, customer ledger tracking, and order processing with multi-stage status workflow and payment tracking. The app supports light/dark mode switching.
+
+### Order Payment Status
+Orders have a payment status field with three options:
+- **COD (Cash on Delivery)**: Order is paid at delivery. Automatically creates a payment ledger entry.
+- **Bank Transfer/QR**: Customer paid via bank/QR. Automatically creates a payment ledger entry.
+- **Credit**: Customer pays later. Balance increases; user adds payment manually to ledger.
+
+**Rules**:
+- Credit status cannot be changed once set (locked)
+- Non-credit orders can switch between COD and Bank Transfer/QR but cannot change to Credit
+- COD/Bank Transfer orders auto-record payment in ledger (customer balance stays zero)
 
 ## User Preferences
 
