@@ -33,9 +33,10 @@ Preferred communication style: Simple, everyday language.
 - **Migrations**: Drizzle Kit manages schema migrations in `./migrations`
 
 ### Authentication
-- **Provider**: Replit Auth using OpenID Connect
+- **Provider**: Email/Password authentication with bcrypt password hashing
 - **Session Storage**: PostgreSQL-backed sessions via connect-pg-simple
-- **Implementation**: Passport.js with custom OIDC strategy in `server/replit_integrations/auth/`
+- **Features**: Login, Registration, and Password Setup for legacy SSO users
+- **Implementation**: Custom auth in `server/replit_integrations/auth/`
 
 ### Project Structure
 ```
@@ -67,8 +68,8 @@ Preferred communication style: Simple, everyday language.
 - Drizzle ORM for type-safe queries and migrations
 
 ### Authentication
-- Replit Auth (OpenID Connect) for user authentication
-- Requires `ISSUER_URL`, `REPL_ID`, and `SESSION_SECRET` environment variables
+- Email/Password authentication with bcrypt
+- Requires `SESSION_SECRET` environment variable
 
 ### Third-Party Libraries
 - **UI Components**: Radix UI primitives (dialogs, dropdowns, forms, etc.)
