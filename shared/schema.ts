@@ -152,8 +152,9 @@ export type CreateOrderRequest = {
   items: {
     productId: number;
     quantity: number;
-    discount?: number; // discount in cents per unit
+    discountPercent?: number; // discount as percentage (0-100)
   }[];
+  note?: string; // optional order note
 };
 export const updateOrderSchema = z.object({
   status: z.enum(ORDER_STATUS_VALUES)

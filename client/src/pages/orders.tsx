@@ -6,6 +6,7 @@ import { useProducts } from "@/hooks/use-products";
 import { useCurrency } from "@/hooks/use-currency";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Table,
   TableBody,
@@ -328,6 +329,7 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
   const [newCustomerPhone, setNewCustomerPhone] = useState("");
   const [newCustomerEmail, setNewCustomerEmail] = useState("");
   const [newCustomerAddress, setNewCustomerAddress] = useState("");
+  const [orderNote, setOrderNote] = useState("");
   
   const { data: customers } = useCustomers();
   const { data: products } = useProducts();
@@ -409,7 +411,8 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
           productId: item.productId, 
           quantity: item.quantity,
           discountPercent: item.discountPercent > 0 ? item.discountPercent : undefined
-        }))
+        })),
+        note: orderNote.trim() || undefined
       });
       toast({ title: "Order created successfully!" });
       onOpenChange(false);
@@ -417,6 +420,7 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
       setStep(1);
       setCustomerId("");
       setCart([]);
+      setOrderNote("");
     } catch (error: any) {
       toast({ title: "Failed to create order", description: error.message, variant: "destructive" });
     }
@@ -636,6 +640,19 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
                     </div>
                   );
                 })}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="order-note" className="text-sm">Order Note (optional)</Label>
+                <Textarea 
+                  id="order-note"
+                  placeholder="Add any special instructions or notes for this order..."
+                  value={orderNote}
+                  onChange={(e) => setOrderNote(e.target.value)}
+                  className="resize-none"
+                  rows={3}
+                  data-testid="input-order-note"
+                />
               </div>
 
               <div className="border-t pt-4">
