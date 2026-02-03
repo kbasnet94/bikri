@@ -18,7 +18,7 @@ export default function Login() {
           <div className="bg-white/10 p-2 rounded-xl backdrop-blur-md">
             <CreditCard className="w-6 h-6" />
           </div>
-          <span className="font-display font-bold text-xl tracking-tight">BizManager</span>
+          <span className="font-display font-bold text-xl tracking-tight">Bikri</span>
         </div>
 
         <div className="relative z-10 max-w-lg">
@@ -32,7 +32,7 @@ export default function Login() {
         </div>
 
         <div className="relative z-10 text-sm text-white/40">
-          © 2024 BizManager Inc. Enterprise Edition.
+          © 2024 Bikri. All rights reserved.
         </div>
       </div>
 

@@ -176,7 +176,7 @@ export default function Inventory() {
       {editingProduct && (
         <ProductDialog 
           open={!!editingProduct} 
-          onOpenChange={(open) => !open && setEditingProduct(null)} 
+          onOpenChange={(open: boolean) => !open && setEditingProduct(null)} 
           mode="edit" 
           defaultValues={editingProduct}
           categories={categories || []}

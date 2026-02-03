@@ -2,7 +2,7 @@ import { useOrders } from "@/hooks/use-orders";
 import { useProducts } from "@/hooks/use-products";
 import { useCustomers } from "@/hooks/use-customers";
 import { StatsCard } from "@/components/stats-card";
-import { DollarSign, AlertTriangle, TrendingUp, Users } from "lucide-react";
+import { DollarSign, AlertTriangle, TrendingUp, Users, Calendar } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { format } from "date-fns";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -23,6 +23,18 @@ export default function Dashboard() {
   const totalSales = completedOrders.reduce((sum, order) => sum + order.totalAmount, 0);
   const lowStockProducts = products?.filter(p => p.stockQuantity < 10) || [];
   const totalCreditBalance = customers?.reduce((sum, c) => sum + Math.max(0, c.currentBalance), 0) || 0;
+  
+  // Calculate monthly revenue (current month)
+  const now = new Date();
+  const currentMonth = now.getMonth();
+  const currentYear = now.getFullYear();
+  const monthlyRevenue = completedOrders
+    .filter(o => {
+      if (!o.orderDate) return false;
+      const orderDate = new Date(o.orderDate);
+      return orderDate.getMonth() === currentMonth && orderDate.getFullYear() === currentYear;
+    })
+    .reduce((sum, order) => sum + order.totalAmount, 0);
 
   // Chart Data: Last 7 days sales
   const last7Days = Array.from({ length: 7 }, (_, i) => {
@@ -48,12 +60,18 @@ export default function Dashboard() {
         <p className="text-muted-foreground text-lg">Overview of your business performance.</p>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
         <StatsCard
           title="Total Revenue"
           value={`$${(totalSales / 100).toLocaleString()}`}
           icon={DollarSign}
           description="Lifetime sales volume"
+        />
+        <StatsCard
+          title="Monthly Revenue"
+          value={`$${(monthlyRevenue / 100).toLocaleString()}`}
+          icon={Calendar}
+          description={format(now, 'MMMM yyyy')}
         />
         <StatsCard
           title="Low Stock Alerts"

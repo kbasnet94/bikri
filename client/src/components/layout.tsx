@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
+import { ThemeToggle } from "./theme-toggle";
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth();
@@ -33,8 +34,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           <CreditCard className="w-6 h-6 text-primary" />
         </div>
         <div>
-          <h1 className="font-display font-bold text-xl tracking-tight">BizManager</h1>
-          <p className="text-xs text-muted-foreground font-medium">Enterprise Edition</p>
+          <h1 className="font-display font-bold text-xl tracking-tight">Bikri</h1>
+          <p className="text-xs text-muted-foreground font-medium">Business Manager</p>
         </div>
       </div>
 
@@ -71,6 +72,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <p className="font-semibold text-sm truncate">{user?.firstName} {user?.lastName}</p>
             <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
           </div>
+          <ThemeToggle />
         </div>
         <Button
           variant="outline"
@@ -119,7 +121,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <div className="bg-primary/10 p-1.5 rounded-lg">
               <CreditCard className="w-5 h-5 text-primary" />
             </div>
-            <span className="font-display font-bold text-lg">BizManager</span>
+            <span className="font-display font-bold text-lg">Bikri</span>
           </div>
           <Button variant="ghost" size="icon" onClick={() => setIsMobileMenuOpen(true)}>
             <Menu className="w-6 h-6" />

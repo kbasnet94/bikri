@@ -1,8 +1,8 @@
-# BizManager - Wholesale Business Management System
+# Bikri - Business Management System
 
 ## Overview
 
-BizManager is a full-stack wholesale business management application built for tracking inventory, managing customer credit accounts, and processing orders. The system provides a dashboard with analytics, inventory management with categories, customer ledger tracking, and order processing with status updates.
+Bikri is a full-stack wholesale business management application built for tracking inventory, managing customer credit accounts, and processing orders. The system provides a dashboard with analytics (including monthly revenue), inventory management with categories, customer ledger tracking, and order processing with status updates. The app supports light/dark mode switching.
 
 ## User Preferences
 

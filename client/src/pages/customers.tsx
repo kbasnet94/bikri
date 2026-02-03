@@ -125,7 +125,7 @@ export default function Customers() {
         <CustomerDetailsDialog 
           customer={selectedCustomer} 
           open={!!selectedCustomer} 
-          onOpenChange={(open) => !open && setSelectedCustomer(null)} 
+          onOpenChange={(open: boolean) => !open && setSelectedCustomer(null)} 
         />
       )}
     </div>
