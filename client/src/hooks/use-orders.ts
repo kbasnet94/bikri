@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, buildUrl } from "@shared/routes";
-import { type CreateOrderRequest, type UpdateOrderRequest, type EditOrderRequest } from "@shared/schema";
+import { type CreateOrderRequest, type UpdateOrderRequest, type EditOrderRequest, type UpdatePaymentStatusRequest } from "@shared/schema";
 
 export function useOrders(customerId?: number) {
   return useQuery({
@@ -88,6 +88,32 @@ export function useEditOrder() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [api.orders.list.path] });
+    },
+  });
+}
+
+export function useUpdatePaymentStatus() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, paymentStatus }: { id: number; paymentStatus: string }) => {
+      const validated = api.orders.updatePaymentStatus.input.parse({ paymentStatus });
+      const url = buildUrl(api.orders.updatePaymentStatus.path, { id });
+      const res = await fetch(url, {
+        method: api.orders.updatePaymentStatus.method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(validated),
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.message || "Failed to update payment status");
+      }
+      return api.orders.updatePaymentStatus.responses[200].parse(await res.json());
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [api.orders.list.path] });
+      // Invalidate customers as their balance may have changed
+      queryClient.invalidateQueries({ queryKey: ["/api/customers"] });
     },
   });
 }

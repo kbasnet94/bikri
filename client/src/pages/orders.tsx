@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { useOrders, useCreateOrder, useUpdateOrderStatus, useEditOrder } from "@/hooks/use-orders";
+import { useOrders, useCreateOrder, useUpdateOrderStatus, useEditOrder, useUpdatePaymentStatus } from "@/hooks/use-orders";
 import { useCustomers, useCreateCustomer } from "@/hooks/use-customers";
 import { Label } from "@/components/ui/label";
 import { useProducts } from "@/hooks/use-products";
@@ -153,14 +153,15 @@ export default function Orders() {
                     <TableHead>Date</TableHead>
                     <TableHead>Total</TableHead>
                     <TableHead>Status</TableHead>
+                    <TableHead>Payment</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {isLoading ? (
-                    <TableRow><TableCell colSpan={7} className="h-24 text-center">Loading orders...</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={8} className="h-24 text-center">Loading orders...</TableCell></TableRow>
                   ) : filteredOrders.length === 0 ? (
-                    <TableRow><TableCell colSpan={7} className="h-24 text-center text-muted-foreground">No {status.label.toLowerCase()} orders.</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={8} className="h-24 text-center text-muted-foreground">No {status.label.toLowerCase()} orders.</TableCell></TableRow>
                   ) : (
                     filteredOrders.map((order) => {
                       const isExpanded = expandedOrders.has(order.id);
@@ -187,13 +188,16 @@ export default function Orders() {
                                 {getStatusLabel(normalizeStatus(order.status))}
                               </Badge>
                             </TableCell>
+                            <TableCell onClick={(e) => e.stopPropagation()}>
+                              <PaymentStatusCell order={order} />
+                            </TableCell>
                             <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                               <OrderActions order={order} onStatusUpdate={handleStatusUpdate} onEdit={setEditingOrder} />
                             </TableCell>
                           </TableRow>
                           {isExpanded && (
                             <TableRow key={`${order.id}-details`} className="bg-muted/20 hover:bg-muted/20">
-                              <TableCell colSpan={7} className="p-4">
+                              <TableCell colSpan={8} className="p-4">
                                 <OrderDetails order={order} formatCurrency={formatCurrency} />
                               </TableCell>
                             </TableRow>
@@ -212,6 +216,60 @@ export default function Orders() {
       <CreateOrderDialog open={isCreateOpen} onOpenChange={setIsCreateOpen} />
       <EditOrderDialog order={editingOrder} open={!!editingOrder} onOpenChange={(open) => !open && setEditingOrder(null)} />
     </div>
+  );
+}
+
+function PaymentStatusCell({ order }: { order: any }) {
+  const updatePaymentStatus = useUpdatePaymentStatus();
+  const { toast } = useToast();
+  const paymentStatus = order.paymentStatus || "Credit";
+  const isCredit = paymentStatus === "Credit";
+
+  const getPaymentBadgeStyle = (status: string) => {
+    switch (status) {
+      case "COD": return "bg-green-500/10 text-green-600 border-green-500/30";
+      case "Bank Transfer/QR": return "bg-blue-500/10 text-blue-600 border-blue-500/30";
+      case "Credit": return "bg-orange-500/10 text-orange-600 border-orange-500/30";
+      default: return "";
+    }
+  };
+
+  const getPaymentLabel = (status: string) => {
+    switch (status) {
+      case "COD": return "COD";
+      case "Bank Transfer/QR": return "Bank/QR";
+      case "Credit": return "Credit";
+      default: return status;
+    }
+  };
+
+  const handleChange = async (newStatus: string) => {
+    try {
+      await updatePaymentStatus.mutateAsync({ id: order.id, paymentStatus: newStatus });
+      toast({ title: "Payment status updated" });
+    } catch (error: any) {
+      toast({ title: "Failed to update", description: error.message, variant: "destructive" });
+    }
+  };
+
+  if (isCredit) {
+    return (
+      <Badge variant="outline" className={cn("text-xs", getPaymentBadgeStyle(paymentStatus))}>
+        {getPaymentLabel(paymentStatus)}
+      </Badge>
+    );
+  }
+
+  return (
+    <Select value={paymentStatus} onValueChange={handleChange} disabled={updatePaymentStatus.isPending}>
+      <SelectTrigger className="h-7 w-[90px] text-xs" data-testid={`select-payment-${order.id}`}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="COD">COD</SelectItem>
+        <SelectItem value="Bank Transfer/QR">Bank/QR</SelectItem>
+      </SelectContent>
+    </Select>
   );
 }
 

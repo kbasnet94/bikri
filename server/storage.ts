@@ -30,8 +30,9 @@ export interface IStorage {
   // Orders
   getOrders(businessId: string, query?: { customerId?: number }): Promise<OrderResponse[]>;
   getOrder(businessId: string, id: number): Promise<OrderResponse | undefined>;
-  createOrder(businessId: string, customerId: number, items: { productId: number; quantity: number; discountPercent?: number }[], note?: string): Promise<Order>;
+  createOrder(businessId: string, customerId: number, items: { productId: number; quantity: number; discountPercent?: number }[], note?: string, paymentStatus?: string): Promise<Order>;
   updateOrderStatus(businessId: string, id: number, status: string): Promise<Order | undefined>;
+  updatePaymentStatus(businessId: string, id: number, newPaymentStatus: string): Promise<Order | undefined>;
   editOrder(businessId: string, id: number, data: { note?: string; items: { id: number; quantity: number; discountPercent: number }[] }): Promise<OrderResponse | undefined>;
 
   // Ledger
