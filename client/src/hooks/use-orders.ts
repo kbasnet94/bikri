@@ -75,15 +75,16 @@ export function useEditOrder() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, data }: { id: number; data: EditOrderRequest }) => {
+      const validated = api.orders.edit.input.parse(data);
       const url = buildUrl(api.orders.edit.path, { id });
       const res = await fetch(url, {
         method: api.orders.edit.method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
+        body: JSON.stringify(validated),
         credentials: "include",
       });
       if (!res.ok) throw new Error("Failed to edit order");
-      return await res.json();
+      return api.orders.edit.responses[200].parse(await res.json());
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [api.orders.list.path] });
