@@ -33,6 +33,7 @@ const registerSchema = z.object({
   password: z.string().min(6),
   firstName: z.string().optional(),
   lastName: z.string().optional(),
+  businessName: z.string().optional(),
 });
 
 const loginSchema = z.object({
@@ -63,7 +64,8 @@ export async function setupAuth(app: Express) {
         data.email,
         data.password,
         data.firstName,
-        data.lastName
+        data.lastName,
+        data.businessName
       );
 
       // Set session and explicitly save

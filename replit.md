@@ -38,6 +38,19 @@ Preferred communication style: Simple, everyday language.
 - **Features**: Login, Registration, and Password Setup for legacy SSO users
 - **Implementation**: Custom auth in `server/replit_integrations/auth/`
 
+### Business Accounts (Multi-User)
+- **Structure**: One business account can have multiple users
+- **User Roles**: `owner` (full access), `admin` (can manage users/settings), `member` (read/write access)
+- **Registration**: New users can optionally create a business during registration
+- **User Management**: Owners/admins can add users by email; new users set their password via "Set Password" flow
+- **API Endpoints**:
+  - `GET /api/business` - Get current user's business
+  - `PUT /api/business` - Update business name (owner/admin only)
+  - `GET /api/business/users` - List business team members
+  - `POST /api/business/users` - Add user to business (owner/admin only)
+  - `PATCH /api/business/users/:userId/role` - Update user role (owner only)
+  - `DELETE /api/business/users/:userId` - Remove user from business (owner/admin only)
+
 ### Project Structure
 ```
 ├── client/src/          # React frontend application

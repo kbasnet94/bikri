@@ -9,6 +9,7 @@ import {
   LogOut,
   Menu,
   X,
+  Building2,
 } from "lucide-react";
 import { Logo } from "./logo";
 import { useState } from "react";
@@ -25,6 +26,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     { href: "/inventory", label: "Inventory", icon: Package },
     { href: "/customers", label: "Customers", icon: Users },
     { href: "/orders", label: "Orders", icon: ShoppingCart },
+    { href: "/account", label: "Account", icon: Building2 },
   ];
 
   const NavContent = () => (

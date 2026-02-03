@@ -18,6 +18,7 @@ export default function Login() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
+  const [businessName, setBusinessName] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [needsPasswordSetup, setNeedsPasswordSetup] = useState(false);
   const { toast } = useToast();
@@ -75,7 +76,7 @@ export default function Login() {
       const res = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password, firstName, lastName }),
+        body: JSON.stringify({ email, password, firstName, lastName, businessName: businessName || undefined }),
         credentials: "include",
       });
 
@@ -268,6 +269,17 @@ export default function Login() {
                     required
                     data-testid="input-email"
                   />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="businessName">Business Name (optional)</Label>
+                  <Input
+                    id="businessName"
+                    placeholder="Your Company Name"
+                    value={businessName}
+                    onChange={(e) => setBusinessName(e.target.value)}
+                    data-testid="input-business-name"
+                  />
+                  <p className="text-xs text-muted-foreground">Create a business account to add team members later</p>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="password">Password</Label>

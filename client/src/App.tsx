@@ -15,6 +15,7 @@ import Inventory from "@/pages/inventory";
 import Customers from "@/pages/customers";
 import Orders from "@/pages/orders";
 import Login from "@/pages/login";
+import Account from "@/pages/account";
 
 // Wrapper for protected routes
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
@@ -67,6 +68,9 @@ function Router() {
       </Route>
       <Route path="/orders">
         <ProtectedRoute component={Orders} />
+      </Route>
+      <Route path="/account">
+        <ProtectedRoute component={Account} />
       </Route>
       
       <Route component={NotFound} />
