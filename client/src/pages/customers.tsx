@@ -28,6 +28,7 @@ import { z } from "zod";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Card } from "@/components/ui/card";
 
 export default function Customers() {
   const [search, setSearch] = useState("");

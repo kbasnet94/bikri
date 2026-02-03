@@ -3,6 +3,7 @@ import { useProducts, useCreateProduct, useUpdateProduct, useDeleteProduct } fro
 import { useCategories } from "@/hooks/use-categories";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 import {
   Table,
   TableBody,

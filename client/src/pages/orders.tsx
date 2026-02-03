@@ -31,6 +31,7 @@ import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
 
 export default function Orders() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);

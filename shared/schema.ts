@@ -147,9 +147,9 @@ export type UpdateOrderRequest = { status: string };
 export type CreateLedgerEntryRequest = InsertLedgerEntry;
 
 // Response types
-export type ProductResponse = Product & { category?: Category };
+export type ProductResponse = Product & { category: Category | null };
 export type CustomerResponse = Customer;
-export type OrderResponse = Order & { customer?: Customer; items?: (OrderItem & { product?: Product })[] };
+export type OrderResponse = Order & { customer: Customer; items: (OrderItem & { product: Product })[] };
 export type LedgerEntryResponse = LedgerEntry;
 
 // Query types

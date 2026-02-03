@@ -177,7 +177,7 @@ export class DatabaseStorage implements IStorage {
   async createOrder(customerId: number, items: { productId: number; quantity: number }[]): Promise<Order> {
     // 1. Calculate total and verify stock
     let totalAmount = 0;
-    const finalItems = [];
+    const finalItems: { productId: number; quantity: number; unitPrice: number }[] = [];
 
     // Note: In a real app we'd use a transaction here.
     // Drizzle transaction:
