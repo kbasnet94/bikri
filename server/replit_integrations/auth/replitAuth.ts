@@ -34,7 +34,8 @@ export function getSession() {
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      secure: true,
+      secure: "auto",
+      sameSite: "lax",
       maxAge: sessionTtl,
     },
   });
@@ -114,7 +115,7 @@ export async function setupAuth(app: Express) {
     ensureStrategy(req.hostname);
     passport.authenticate(`replitauth:${req.hostname}`, {
       successReturnToOrRedirect: "/",
-      failureRedirect: "/api/login",
+      failureRedirect: "/login",
     })(req, res, next);
   });
 
