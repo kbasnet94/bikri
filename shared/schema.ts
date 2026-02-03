@@ -161,6 +161,16 @@ export const updateOrderSchema = z.object({
 });
 export type UpdateOrderRequest = z.infer<typeof updateOrderSchema>;
 
+export const editOrderSchema = z.object({
+  note: z.string().optional(),
+  items: z.array(z.object({
+    id: z.number(), // existing order item ID
+    quantity: z.number().min(1),
+    discountPercent: z.number().min(0).max(100),
+  })),
+});
+export type EditOrderRequest = z.infer<typeof editOrderSchema>;
+
 export type CreateLedgerEntryRequest = InsertLedgerEntry;
 
 // Response types

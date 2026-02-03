@@ -32,6 +32,7 @@ export interface IStorage {
   getOrder(businessId: string, id: number): Promise<OrderResponse | undefined>;
   createOrder(businessId: string, customerId: number, items: { productId: number; quantity: number; discountPercent?: number }[], note?: string): Promise<Order>;
   updateOrderStatus(businessId: string, id: number, status: string): Promise<Order | undefined>;
+  editOrder(businessId: string, id: number, data: { note?: string; items: { id: number; quantity: number; discountPercent: number }[] }): Promise<OrderResponse | undefined>;
 
   // Ledger
   getLedgerEntries(businessId: string, customerId: number): Promise<LedgerEntry[]>;
@@ -235,6 +236,48 @@ export class DatabaseStorage implements IStorage {
   async updateOrderStatus(businessId: string, id: number, status: string): Promise<Order | undefined> {
     const [updatedOrder] = await db.update(orders).set({ status }).where(and(eq(orders.id, id), eq(orders.businessId, businessId))).returning();
     return updatedOrder;
+  }
+
+  async editOrder(businessId: string, id: number, data: { note?: string; items: { id: number; quantity: number; discountPercent: number }[] }): Promise<OrderResponse | undefined> {
+    return await db.transaction(async (tx) => {
+      // First verify the order belongs to this business
+      const existingOrder = await tx.query.orders.findFirst({
+        where: and(eq(orders.id, id), eq(orders.businessId, businessId)),
+        with: { items: { with: { product: true } } }
+      });
+      
+      if (!existingOrder) return undefined;
+
+      // Update each item's quantity and discount
+      let newTotal = 0;
+      for (const itemUpdate of data.items) {
+        const existingItem = existingOrder.items.find(i => i.id === itemUpdate.id);
+        if (!existingItem) continue;
+        
+        const discountAmount = Math.round(existingItem.unitPrice * itemUpdate.discountPercent / 100);
+        const effectivePrice = existingItem.unitPrice - discountAmount;
+        const lineTotal = effectivePrice * itemUpdate.quantity;
+        newTotal += lineTotal;
+
+        await tx.update(orderItems)
+          .set({ 
+            quantity: itemUpdate.quantity, 
+            discount: discountAmount 
+          })
+          .where(eq(orderItems.id, itemUpdate.id));
+      }
+
+      // Update order note and total
+      await tx.update(orders)
+        .set({ 
+          note: data.note !== undefined ? data.note : existingOrder.note,
+          totalAmount: newTotal 
+        })
+        .where(and(eq(orders.id, id), eq(orders.businessId, businessId)));
+
+      // Return the updated order
+      return await this.getOrder(businessId, id);
+    });
   }
 
   // Ledger

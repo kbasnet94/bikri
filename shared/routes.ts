@@ -5,6 +5,7 @@ import {
   insertCustomerSchema,
   insertLedgerEntrySchema,
   updateOrderSchema,
+  editOrderSchema,
   categories,
   products,
   customers,
@@ -188,6 +189,15 @@ export const api = {
       input: updateOrderSchema,
       responses: {
         200: z.custom<typeof orders.$inferSelect>(),
+        404: errorSchemas.notFound,
+      },
+    },
+    edit: {
+      method: 'PATCH' as const,
+      path: '/api/orders/:id',
+      input: editOrderSchema,
+      responses: {
+        200: z.custom<typeof orders.$inferSelect & { customer: typeof customers.$inferSelect, items: (typeof orderItems.$inferSelect & { product: typeof products.$inferSelect })[] }>(),
         404: errorSchemas.notFound,
       },
     },

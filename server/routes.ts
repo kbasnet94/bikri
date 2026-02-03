@@ -200,6 +200,21 @@ export async function registerRoutes(
     }
   });
 
+  app.patch(api.orders.edit.path, isAuthenticated, requireBusiness, async (req: any, res) => {
+    try {
+      const businessId = req.user.businessId;
+      const input = api.orders.edit.input.parse(req.body);
+      const order = await storage.editOrder(businessId, Number(req.params.id), input);
+      if (!order) return res.status(404).json({ message: "Order not found" });
+      res.json(order);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message });
+      }
+      throw err;
+    }
+  });
+
   // Ledger - require auth and businessId for full isolation
   app.get(api.ledger.list.path, isAuthenticated, requireBusiness, async (req: any, res) => {
     const businessId = req.user.businessId;
