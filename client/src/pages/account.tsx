@@ -58,18 +58,18 @@ export default function Account() {
 
   // Common currencies for wholesale business
   const currencies = [
-    { code: "USD", name: "US Dollar", symbol: "$" },
-    { code: "EUR", name: "Euro", symbol: "€" },
-    { code: "GBP", name: "British Pound", symbol: "£" },
-    { code: "INR", name: "Indian Rupee", symbol: "₹" },
-    { code: "AED", name: "UAE Dirham", symbol: "د.إ" },
-    { code: "SAR", name: "Saudi Riyal", symbol: "﷼" },
-    { code: "PKR", name: "Pakistani Rupee", symbol: "₨" },
-    { code: "BDT", name: "Bangladeshi Taka", symbol: "৳" },
-    { code: "CNY", name: "Chinese Yuan", symbol: "¥" },
-    { code: "JPY", name: "Japanese Yen", symbol: "¥" },
-    { code: "CAD", name: "Canadian Dollar", symbol: "$" },
-    { code: "AUD", name: "Australian Dollar", symbol: "$" },
+    { code: "USD", name: "US Dollar" },
+    { code: "EUR", name: "Euro" },
+    { code: "GBP", name: "British Pound" },
+    { code: "INR", name: "Indian Rupee" },
+    { code: "AED", name: "UAE Dirham" },
+    { code: "SAR", name: "Saudi Riyal" },
+    { code: "PKR", name: "Pakistani Rupee" },
+    { code: "BDT", name: "Bangladeshi Taka" },
+    { code: "CNY", name: "Chinese Yuan" },
+    { code: "JPY", name: "Japanese Yen" },
+    { code: "CAD", name: "Canadian Dollar" },
+    { code: "AUD", name: "Australian Dollar" },
   ];
 
   const { data: businessUsers, isLoading: loadingUsers } = useQuery<BusinessUser[]>({
@@ -260,10 +260,10 @@ export default function Account() {
                 </SelectTrigger>
                 <SelectContent>
                   {currencies.map((c) => (
-                    <SelectItem key={c.code} value={c.code}>
+                    <SelectItem key={c.code} value={c.code} data-testid={`select-currency-${c.code}`}>
                       <span className="flex items-center gap-2">
                         <span className="font-medium">{c.code}</span>
-                        <span className="text-muted-foreground">- {c.name} ({c.symbol})</span>
+                        <span className="text-muted-foreground">- {c.name}</span>
                       </span>
                     </SelectItem>
                   ))}
@@ -276,7 +276,7 @@ export default function Account() {
             <div className="pt-4 border-t space-y-2">
               <Label>Current Currency</Label>
               <p className="text-lg font-semibold" data-testid="text-current-currency">
-                {currencies.find(c => c.code === (user?.business?.currency || "USD"))?.name || "US Dollar"} ({user?.business?.currency || "USD"})
+                {user?.business?.currency || "USD"} - {currencies.find(c => c.code === (user?.business?.currency || "USD"))?.name || "US Dollar"}
               </p>
             </div>
           </CardContent>
