@@ -1,21 +1,24 @@
-import { pgTable, text, serial, integer, boolean, timestamp, decimal } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, decimal, varchar } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 export * from "./models/auth";
+import { businesses } from "./models/auth";
 
 // === TABLE DEFINITIONS ===
 
 export const categories = pgTable("categories", {
   id: serial("id").primaryKey(),
+  businessId: varchar("business_id").notNull().references(() => businesses.id),
   name: text("name").notNull(),
   description: text("description"),
 });
 
 export const products = pgTable("products", {
   id: serial("id").primaryKey(),
+  businessId: varchar("business_id").notNull().references(() => businesses.id),
   name: text("name").notNull(),
-  sku: text("sku").notNull().unique(),
+  sku: text("sku").notNull(),
   description: text("description"),
   price: integer("price").notNull(), // in cents
   stockQuantity: integer("stock_quantity").notNull().default(0),
@@ -26,6 +29,7 @@ export const products = pgTable("products", {
 
 export const customers = pgTable("customers", {
   id: serial("id").primaryKey(),
+  businessId: varchar("business_id").notNull().references(() => businesses.id),
   name: text("name").notNull(),
   email: text("email"),
   phone: text("phone"),
@@ -41,6 +45,7 @@ export type OrderStatusType = typeof ORDER_STATUS_VALUES[number];
 
 export const orders = pgTable("orders", {
   id: serial("id").primaryKey(),
+  businessId: varchar("business_id").notNull().references(() => businesses.id),
   customerId: integer("customer_id").notNull().references(() => customers.id),
   status: text("status").notNull().default("new"), // new, in-process, ready, completed, cancelled
   totalAmount: integer("total_amount").notNull(), // in cents
@@ -109,10 +114,10 @@ export const ledgerEntriesRelations = relations(ledgerEntries, ({ one }) => ({
 
 // === BASE SCHEMAS ===
 
-export const insertCategorySchema = createInsertSchema(categories).omit({ id: true });
-export const insertProductSchema = createInsertSchema(products).omit({ id: true, createdAt: true });
-export const insertCustomerSchema = createInsertSchema(customers).omit({ id: true, createdAt: true, currentBalance: true }); // currentBalance should be updated via ledger
-export const insertOrderSchema = createInsertSchema(orders).omit({ id: true, createdAt: true, totalAmount: true }); // totalAmount calculated from items
+export const insertCategorySchema = createInsertSchema(categories).omit({ id: true, businessId: true });
+export const insertProductSchema = createInsertSchema(products).omit({ id: true, createdAt: true, businessId: true });
+export const insertCustomerSchema = createInsertSchema(customers).omit({ id: true, createdAt: true, currentBalance: true, businessId: true }); // currentBalance should be updated via ledger
+export const insertOrderSchema = createInsertSchema(orders).omit({ id: true, createdAt: true, totalAmount: true, businessId: true }); // totalAmount calculated from items
 export const insertOrderItemSchema = createInsertSchema(orderItems).omit({ id: true });
 export const insertLedgerEntrySchema = createInsertSchema(ledgerEntries).omit({ id: true, createdAt: true });
 
