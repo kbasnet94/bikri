@@ -65,14 +65,19 @@ export async function setupAuth(app: Express) {
         data.lastName
       );
 
-      // Set session
+      // Set session and explicitly save
       (req.session as any).userId = user.id;
-      
-      res.status(201).json({
-        id: user.id,
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
+      req.session.save((err) => {
+        if (err) {
+          console.error("Session save error:", err);
+          return res.status(500).json({ message: "Registration failed" });
+        }
+        res.status(201).json({
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+        });
       });
     } catch (error: any) {
       if (error.name === "ZodError") {
@@ -102,14 +107,19 @@ export async function setupAuth(app: Express) {
         return res.status(401).json({ message: "Invalid email or password" });
       }
 
-      // Set session
+      // Set session and explicitly save
       (req.session as any).userId = user.id;
-      
-      res.json({
-        id: user.id,
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
+      req.session.save((err) => {
+        if (err) {
+          console.error("Session save error:", err);
+          return res.status(500).json({ message: "Login failed" });
+        }
+        res.json({
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+        });
       });
     } catch (error: any) {
       if (error.name === "ZodError") {
@@ -141,10 +151,15 @@ export async function setupAuth(app: Express) {
 
       await authStorage.setPassword(user.id, password);
       
-      // Log them in
+      // Log them in and save session
       (req.session as any).userId = user.id;
-      
-      res.json({ message: "Password set successfully" });
+      req.session.save((err) => {
+        if (err) {
+          console.error("Session save error:", err);
+          return res.status(500).json({ message: "Failed to set password" });
+        }
+        res.json({ message: "Password set successfully" });
+      });
     } catch (error: any) {
       if (error.name === "ZodError") {
         return res.status(400).json({ message: "Password must be at least 6 characters" });
