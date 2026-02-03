@@ -72,6 +72,7 @@ export const ledgerEntries = pgTable("ledger_entries", {
   id: serial("id").primaryKey(),
   businessId: varchar("business_id").notNull().references(() => businesses.id),
   customerId: integer("customer_id").notNull().references(() => customers.id),
+  orderId: integer("order_id").references(() => orders.id), // optional - links to order that created this entry
   type: text("type").notNull(), // debit (increase balance), credit (decrease balance/payment), purchase, adjustment
   amount: integer("amount").notNull(), // in cents
   description: text("description"),
@@ -116,6 +117,10 @@ export const ledgerEntriesRelations = relations(ledgerEntries, ({ one }) => ({
   customer: one(customers, {
     fields: [ledgerEntries.customerId],
     references: [customers.id],
+  }),
+  order: one(orders, {
+    fields: [ledgerEntries.orderId],
+    references: [orders.id],
   }),
 }));
 

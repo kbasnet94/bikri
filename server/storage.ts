@@ -222,6 +222,7 @@ export class DatabaseStorage implements IStorage {
       await tx.insert(ledgerEntries).values({
         businessId,
         customerId,
+        orderId: newOrder.id,
         type: "purchase",
         amount: totalAmount,
         description: `Order #${newOrder.id}`,
@@ -233,6 +234,7 @@ export class DatabaseStorage implements IStorage {
         await tx.insert(ledgerEntries).values({
           businessId,
           customerId,
+          orderId: newOrder.id,
           type: "credit",
           amount: totalAmount,
           description: `Payment for Order #${newOrder.id} (${paymentStatus})`,
@@ -251,8 +253,62 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateOrderStatus(businessId: string, id: number, status: string): Promise<Order | undefined> {
-    const [updatedOrder] = await db.update(orders).set({ status }).where(and(eq(orders.id, id), eq(orders.businessId, businessId))).returning();
-    return updatedOrder;
+    return await db.transaction(async (tx) => {
+      // Get the order first to check current status and get customerId
+      const existingOrder = await tx.query.orders.findFirst({
+        where: and(eq(orders.id, id), eq(orders.businessId, businessId))
+      });
+      
+      if (!existingOrder) return undefined;
+      
+      // If cancelling an order, reverse ledger entries and restore inventory
+      if (status === "cancelled" && existingOrder.status !== "cancelled") {
+        // Get order items to restore inventory
+        const items = await tx.select().from(orderItems).where(eq(orderItems.orderId, id));
+        
+        // Restore inventory for each item
+        for (const item of items) {
+          await tx.update(products)
+            .set({ stockQuantity: sql`${products.stockQuantity} + ${item.quantity}` })
+            .where(and(eq(products.id, item.productId), eq(products.businessId, businessId)));
+        }
+        
+        // Get all ledger entries for this order
+        const orderLedgerEntries = await tx.select().from(ledgerEntries)
+          .where(and(eq(ledgerEntries.orderId, id), eq(ledgerEntries.businessId, businessId)));
+        
+        // Calculate net balance change to reverse
+        // purchase entries increased balance, credit entries decreased balance
+        let balanceToReverse = 0;
+        for (const entry of orderLedgerEntries) {
+          if (entry.type === "purchase") {
+            balanceToReverse += entry.amount; // This was added to balance
+          } else if (entry.type === "credit") {
+            balanceToReverse -= entry.amount; // This was subtracted from balance
+          }
+        }
+        
+        // For Credit orders: balance was increased by totalAmount (balanceToReverse = totalAmount)
+        // For COD/Bank Transfer: balance was unchanged (balanceToReverse = totalAmount - totalAmount = 0)
+        
+        if (balanceToReverse !== 0) {
+          await tx.update(customers)
+            .set({ currentBalance: sql`${customers.currentBalance} - ${balanceToReverse}` })
+            .where(and(eq(customers.id, existingOrder.customerId), eq(customers.businessId, businessId)));
+        }
+        
+        // Delete ledger entries for this order
+        await tx.delete(ledgerEntries)
+          .where(and(eq(ledgerEntries.orderId, id), eq(ledgerEntries.businessId, businessId)));
+      }
+      
+      const [updatedOrder] = await tx.update(orders)
+        .set({ status })
+        .where(and(eq(orders.id, id), eq(orders.businessId, businessId)))
+        .returning();
+      
+      return updatedOrder;
+    });
   }
 
   async updatePaymentStatus(businessId: string, id: number, newPaymentStatus: string): Promise<Order | undefined> {

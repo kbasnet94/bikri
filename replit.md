@@ -15,6 +15,12 @@ Orders have a payment status field with three options:
 - Non-credit orders can switch between COD and Bank Transfer/QR but cannot change to Credit
 - COD/Bank Transfer orders auto-record payment in ledger (customer balance stays zero)
 
+### Order Cancellation
+When an order is cancelled:
+- All ledger entries linked to that order are deleted
+- Customer balance is reversed (Credit orders decrease balance back to original)
+- Product inventory is restored (stock quantities are added back)
+
 ## User Preferences
 
 Preferred communication style: Simple, everyday language.
