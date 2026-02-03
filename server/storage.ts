@@ -30,7 +30,7 @@ export interface IStorage {
   // Orders
   getOrders(businessId: string, query?: { customerId?: number }): Promise<OrderResponse[]>;
   getOrder(businessId: string, id: number): Promise<OrderResponse | undefined>;
-  createOrder(businessId: string, customerId: number, items: { productId: number; quantity: number; discountPercent?: number }[]): Promise<Order>;
+  createOrder(businessId: string, customerId: number, items: { productId: number; quantity: number; discountPercent?: number }[], note?: string): Promise<Order>;
   updateOrderStatus(businessId: string, id: number, status: string): Promise<Order | undefined>;
 
   // Ledger
@@ -144,7 +144,12 @@ export class DatabaseStorage implements IStorage {
         }
         return andOp(...conditions);
       },
-      with: { customer: true },
+      with: { 
+        customer: true,
+        items: {
+          with: { product: true }
+        }
+      },
       orderBy: [desc(orders.createdAt)],
     });
   }
@@ -161,7 +166,7 @@ export class DatabaseStorage implements IStorage {
     });
   }
 
-  async createOrder(businessId: string, customerId: number, items: { productId: number; quantity: number; discountPercent?: number }[]): Promise<Order> {
+  async createOrder(businessId: string, customerId: number, items: { productId: number; quantity: number; discountPercent?: number }[], note?: string): Promise<Order> {
     let totalAmount = 0;
     const finalItems: { productId: number; quantity: number; unitPrice: number; discount: number }[] = [];
 
@@ -196,6 +201,7 @@ export class DatabaseStorage implements IStorage {
         customerId,
         totalAmount,
         status: "new",
+        note: note || null,
         orderDate: new Date()
       }).returning();
 

@@ -49,6 +49,7 @@ export const orders = pgTable("orders", {
   customerId: integer("customer_id").notNull().references(() => customers.id),
   status: text("status").notNull().default("new"), // new, in-process, ready, completed, cancelled
   totalAmount: integer("total_amount").notNull(), // in cents
+  note: text("note"), // optional order note
   orderDate: timestamp("order_date").defaultNow(),
   createdAt: timestamp("created_at").defaultNow(),
 });

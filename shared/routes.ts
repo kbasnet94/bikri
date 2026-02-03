@@ -175,6 +175,7 @@ export const api = {
           quantity: z.number(),
           discountPercent: z.number().min(0).max(100).optional(), // discount as percentage (0-100)
         })),
+        note: z.string().optional(), // optional order note
       }),
       responses: {
         201: z.custom<typeof orders.$inferSelect>(),
