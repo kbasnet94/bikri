@@ -260,7 +260,7 @@ function ProductRow({
                 type="number" 
                 value={quantity} 
                 onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value) || 1))} 
-                className="w-16 h-8 text-center"
+                className="w-16 h-8 text-center no-spinners"
                 min={1}
                 max={product.stockQuantity}
                 data-testid={`input-quantity-${product.id}`}
@@ -272,7 +272,7 @@ function ProductRow({
                 type="number" 
                 value={discountPercent} 
                 onChange={(e) => setDiscountPercent(Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)))} 
-                className="w-16 h-8 text-center"
+                className="w-16 h-8 text-center no-spinners"
                 min={0}
                 max={100}
                 step={1}
@@ -584,7 +584,7 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
                             type="number" 
                             value={item.quantity} 
                             onChange={(e) => updateQuantity(item.productId, parseInt(e.target.value) || 1)} 
-                            className="w-16 h-8 text-center"
+                            className="w-16 h-8 text-center no-spinners"
                             min={1}
                           />
                         </div>
@@ -594,7 +594,7 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
                             type="number" 
                             value={item.discountPercent} 
                             onChange={(e) => updateDiscountPercent(item.productId, Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)))} 
-                            className="w-16 h-8 text-center"
+                            className="w-16 h-8 text-center no-spinners"
                             min={0}
                             max={100}
                             step={1}
