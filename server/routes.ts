@@ -172,7 +172,7 @@ export async function registerRoutes(
     try {
       const businessId = req.user.businessId;
       const input = api.orders.create.input.parse(req.body);
-      const order = await storage.createOrder(businessId, input.customerId, input.items, input.note);
+      const order = await storage.createOrder(businessId, input.customerId, input.items, input.note, input.paymentStatus);
       res.status(201).json(order);
     } catch (err) {
       if (err instanceof z.ZodError) {
@@ -195,6 +195,24 @@ export async function registerRoutes(
     } catch (err) {
       if (err instanceof z.ZodError) {
         return res.status(400).json({ message: err.errors[0].message });
+      }
+      throw err;
+    }
+  });
+
+  app.patch(api.orders.updatePaymentStatus.path, isAuthenticated, requireBusiness, async (req: any, res) => {
+    try {
+      const businessId = req.user.businessId;
+      const { paymentStatus } = api.orders.updatePaymentStatus.input.parse(req.body);
+      const order = await storage.updatePaymentStatus(businessId, Number(req.params.id), paymentStatus);
+      if (!order) return res.status(404).json({ message: "Order not found" });
+      res.json(order);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message });
+      }
+      if (err instanceof Error) {
+        return res.status(400).json({ message: err.message });
       }
       throw err;
     }

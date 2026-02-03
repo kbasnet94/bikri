@@ -167,7 +167,7 @@ export class DatabaseStorage implements IStorage {
     });
   }
 
-  async createOrder(businessId: string, customerId: number, items: { productId: number; quantity: number; discountPercent?: number }[], note?: string): Promise<Order> {
+  async createOrder(businessId: string, customerId: number, items: { productId: number; quantity: number; discountPercent?: number }[], note?: string, paymentStatus: string = "Credit"): Promise<Order> {
     let totalAmount = 0;
     const finalItems: { productId: number; quantity: number; unitPrice: number; discount: number }[] = [];
 
@@ -202,6 +202,7 @@ export class DatabaseStorage implements IStorage {
         customerId,
         totalAmount,
         status: "new",
+        paymentStatus,
         note: note || null,
         orderDate: new Date()
       }).returning();
@@ -216,6 +217,7 @@ export class DatabaseStorage implements IStorage {
         });
       }
 
+      // Always create a purchase ledger entry (increases customer balance)
       await tx.insert(ledgerEntries).values({
         businessId,
         customerId,
@@ -225,9 +227,23 @@ export class DatabaseStorage implements IStorage {
         entryDate: new Date()
       });
 
-      await tx.update(customers)
-        .set({ currentBalance: sql`${customers.currentBalance} + ${totalAmount}` })
-        .where(and(eq(customers.id, customerId), eq(customers.businessId, businessId)));
+      // If COD or Bank Transfer/QR, also create a payment entry (decreases balance)
+      if (paymentStatus === "COD" || paymentStatus === "Bank Transfer/QR") {
+        await tx.insert(ledgerEntries).values({
+          businessId,
+          customerId,
+          type: "credit",
+          amount: totalAmount,
+          description: `Payment for Order #${newOrder.id} (${paymentStatus})`,
+          entryDate: new Date()
+        });
+        // Balance stays the same (purchase + payment cancel out)
+      } else {
+        // Credit: balance increases by purchase amount
+        await tx.update(customers)
+          .set({ currentBalance: sql`${customers.currentBalance} + ${totalAmount}` })
+          .where(and(eq(customers.id, customerId), eq(customers.businessId, businessId)));
+      }
 
       return newOrder;
     });
@@ -236,6 +252,34 @@ export class DatabaseStorage implements IStorage {
   async updateOrderStatus(businessId: string, id: number, status: string): Promise<Order | undefined> {
     const [updatedOrder] = await db.update(orders).set({ status }).where(and(eq(orders.id, id), eq(orders.businessId, businessId))).returning();
     return updatedOrder;
+  }
+
+  async updatePaymentStatus(businessId: string, id: number, newPaymentStatus: string): Promise<Order | undefined> {
+    return await db.transaction(async (tx) => {
+      const existingOrder = await tx.query.orders.findFirst({
+        where: and(eq(orders.id, id), eq(orders.businessId, businessId))
+      });
+      
+      if (!existingOrder) return undefined;
+
+      // If current payment status is Credit, it cannot be changed
+      if (existingOrder.paymentStatus === "Credit") {
+        throw new Error("Cannot change payment status once set to Credit");
+      }
+
+      // Cannot switch to Credit from other statuses
+      if (newPaymentStatus === "Credit") {
+        throw new Error("Cannot change payment status to Credit");
+      }
+
+      // Switching between COD and Bank Transfer/QR is allowed (no ledger changes needed)
+      const [updatedOrder] = await tx.update(orders)
+        .set({ paymentStatus: newPaymentStatus })
+        .where(and(eq(orders.id, id), eq(orders.businessId, businessId)))
+        .returning();
+      
+      return updatedOrder;
+    });
   }
 
   async editOrder(businessId: string, id: number, data: { note?: string; items: { id: number; quantity: number; discountPercent: number }[] }): Promise<OrderResponse | undefined> {

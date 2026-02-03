@@ -5,7 +5,9 @@ import {
   insertCustomerSchema,
   insertLedgerEntrySchema,
   updateOrderSchema,
+  updatePaymentStatusSchema,
   editOrderSchema,
+  PAYMENT_STATUS_VALUES,
   categories,
   products,
   customers,
@@ -177,6 +179,7 @@ export const api = {
           discountPercent: z.number().min(0).max(100).optional(), // discount as percentage (0-100)
         })),
         note: z.string().optional(), // optional order note
+        paymentStatus: z.enum(PAYMENT_STATUS_VALUES), // COD, Bank Transfer/QR, Credit
       }),
       responses: {
         201: z.custom<typeof orders.$inferSelect>(),
@@ -189,6 +192,16 @@ export const api = {
       input: updateOrderSchema,
       responses: {
         200: z.custom<typeof orders.$inferSelect>(),
+        404: errorSchemas.notFound,
+      },
+    },
+    updatePaymentStatus: {
+      method: 'PATCH' as const,
+      path: '/api/orders/:id/payment-status',
+      input: updatePaymentStatusSchema,
+      responses: {
+        200: z.custom<typeof orders.$inferSelect>(),
+        400: errorSchemas.validation,
         404: errorSchemas.notFound,
       },
     },
