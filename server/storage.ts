@@ -24,7 +24,7 @@ export interface IStorage {
   getCustomer(businessId: string, id: number): Promise<Customer | undefined>;
   createCustomer(businessId: string, customer: InsertCustomer): Promise<Customer>;
   updateCustomer(businessId: string, id: number, customer: Partial<InsertCustomer>): Promise<Customer | undefined>;
-  updateCustomerBalance(id: number, amountDelta: number): Promise<void>;
+  updateCustomerBalance(businessId: string, id: number, amountDelta: number): Promise<void>;
 
   // Orders
   getOrders(businessId: string, query?: { customerId?: number }): Promise<OrderResponse[]>;
@@ -122,10 +122,10 @@ export class DatabaseStorage implements IStorage {
     return updatedCustomer;
   }
 
-  async updateCustomerBalance(id: number, amountDelta: number): Promise<void> {
+  async updateCustomerBalance(businessId: string, id: number, amountDelta: number): Promise<void> {
     await db.update(customers)
       .set({ currentBalance: sql`${customers.currentBalance} + ${amountDelta}` })
-      .where(eq(customers.id, id));
+      .where(and(eq(customers.id, id), eq(customers.businessId, businessId)));
   }
 
   // Orders
@@ -214,7 +214,7 @@ export class DatabaseStorage implements IStorage {
 
       await tx.update(customers)
         .set({ currentBalance: sql`${customers.currentBalance} + ${totalAmount}` })
-        .where(eq(customers.id, customerId));
+        .where(and(eq(customers.id, customerId), eq(customers.businessId, businessId)));
 
       return newOrder;
     });
