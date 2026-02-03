@@ -1,10 +1,135 @@
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { CreditCard } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { CreditCard, Loader2 } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
+
+type AuthMode = "login" | "register" | "set-password";
 
 export default function Login() {
-  const handleLogin = () => {
-    window.location.href = "/api/login";
+  const [mode, setMode] = useState<AuthMode>("login");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [needsPasswordSetup, setNeedsPasswordSetup] = useState(false);
+  const { toast } = useToast();
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+        credentials: "include",
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        if (data.needsPasswordSetup) {
+          setNeedsPasswordSetup(true);
+          setMode("set-password");
+          toast({ title: "Please set a password", description: "Your account was created with SSO. Set a password to continue." });
+        } else {
+          toast({ title: "Login failed", description: data.message, variant: "destructive" });
+        }
+        return;
+      }
+
+      toast({ title: "Welcome back!" });
+      window.location.href = "/";
+    } catch (error: any) {
+      toast({ title: "Login failed", description: error.message, variant: "destructive" });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (password !== confirmPassword) {
+      toast({ title: "Passwords don't match", variant: "destructive" });
+      return;
+    }
+
+    if (password.length < 6) {
+      toast({ title: "Password must be at least 6 characters", variant: "destructive" });
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      const res = await fetch("/api/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password, firstName, lastName }),
+        credentials: "include",
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        toast({ title: "Registration failed", description: data.message, variant: "destructive" });
+        return;
+      }
+
+      toast({ title: "Account created!" });
+      window.location.href = "/";
+    } catch (error: any) {
+      toast({ title: "Registration failed", description: error.message, variant: "destructive" });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleSetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (password !== confirmPassword) {
+      toast({ title: "Passwords don't match", variant: "destructive" });
+      return;
+    }
+
+    if (password.length < 6) {
+      toast({ title: "Password must be at least 6 characters", variant: "destructive" });
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      const res = await fetch("/api/auth/set-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+        credentials: "include",
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        toast({ title: "Failed to set password", description: data.message, variant: "destructive" });
+        return;
+      }
+
+      toast({ title: "Password set successfully!" });
+      window.location.href = "/";
+    } catch (error: any) {
+      toast({ title: "Failed to set password", description: error.message, variant: "destructive" });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -36,26 +161,211 @@ export default function Login() {
         </div>
       </div>
 
-      {/* Right Panel: Login */}
+      {/* Right Panel: Auth Forms */}
       <div className="flex-1 flex items-center justify-center p-6 bg-muted/10">
         <Card className="w-full max-w-md shadow-xl border-border/50">
-          <CardHeader className="space-y-1 text-center pb-8">
+          <CardHeader className="space-y-1 text-center pb-6">
             <div className="mx-auto bg-primary/10 w-12 h-12 rounded-xl flex items-center justify-center mb-4 lg:hidden">
               <CreditCard className="w-6 h-6 text-primary" />
             </div>
-            <CardTitle className="text-2xl font-bold font-display">Welcome back</CardTitle>
+            <CardTitle className="text-2xl font-bold font-display">
+              {mode === "login" && "Welcome back"}
+              {mode === "register" && "Create an account"}
+              {mode === "set-password" && "Set your password"}
+            </CardTitle>
             <CardDescription>
-              Sign in to your enterprise dashboard
+              {mode === "login" && "Sign in to your account"}
+              {mode === "register" && "Get started with Bikri"}
+              {mode === "set-password" && "Create a password for your account"}
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Button 
-              size="lg" 
-              className="w-full font-semibold shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 transition-all duration-300"
-              onClick={handleLogin}
-            >
-              Sign in with Replit
-            </Button>
+            {mode === "login" && (
+              <form onSubmit={handleLogin} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="email">Email</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    placeholder="you@example.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                    data-testid="input-email"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="password">Password</Label>
+                  <Input
+                    id="password"
+                    type="password"
+                    placeholder="Enter your password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    data-testid="input-password"
+                  />
+                </div>
+                <Button type="submit" className="w-full" disabled={isLoading} data-testid="button-login">
+                  {isLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                  Sign In
+                </Button>
+                <div className="text-center text-sm text-muted-foreground">
+                  Don't have an account?{" "}
+                  <button
+                    type="button"
+                    className="text-primary hover:underline font-medium"
+                    onClick={() => setMode("register")}
+                    data-testid="link-register"
+                  >
+                    Sign up
+                  </button>
+                </div>
+                <div className="text-center text-sm text-muted-foreground">
+                  <button
+                    type="button"
+                    className="text-primary hover:underline font-medium"
+                    onClick={() => setMode("set-password")}
+                    data-testid="link-set-password"
+                  >
+                    Set password for existing account
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {mode === "register" && (
+              <form onSubmit={handleRegister} className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="firstName">First Name</Label>
+                    <Input
+                      id="firstName"
+                      placeholder="John"
+                      value={firstName}
+                      onChange={(e) => setFirstName(e.target.value)}
+                      data-testid="input-firstname"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="lastName">Last Name</Label>
+                    <Input
+                      id="lastName"
+                      placeholder="Doe"
+                      value={lastName}
+                      onChange={(e) => setLastName(e.target.value)}
+                      data-testid="input-lastname"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="email">Email</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    placeholder="you@example.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                    data-testid="input-email"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="password">Password</Label>
+                  <Input
+                    id="password"
+                    type="password"
+                    placeholder="At least 6 characters"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    data-testid="input-password"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="confirmPassword">Confirm Password</Label>
+                  <Input
+                    id="confirmPassword"
+                    type="password"
+                    placeholder="Confirm your password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    required
+                    data-testid="input-confirm-password"
+                  />
+                </div>
+                <Button type="submit" className="w-full" disabled={isLoading} data-testid="button-register">
+                  {isLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                  Create Account
+                </Button>
+                <div className="text-center text-sm text-muted-foreground">
+                  Already have an account?{" "}
+                  <button
+                    type="button"
+                    className="text-primary hover:underline font-medium"
+                    onClick={() => setMode("login")}
+                    data-testid="link-login"
+                  >
+                    Sign in
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {mode === "set-password" && (
+              <form onSubmit={handleSetPassword} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="email">Email</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    placeholder="you@example.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                    data-testid="input-email"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="password">New Password</Label>
+                  <Input
+                    id="password"
+                    type="password"
+                    placeholder="At least 6 characters"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    data-testid="input-password"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="confirmPassword">Confirm Password</Label>
+                  <Input
+                    id="confirmPassword"
+                    type="password"
+                    placeholder="Confirm your password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    required
+                    data-testid="input-confirm-password"
+                  />
+                </div>
+                <Button type="submit" className="w-full" disabled={isLoading} data-testid="button-set-password">
+                  {isLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                  Set Password
+                </Button>
+                <div className="text-center text-sm text-muted-foreground">
+                  <button
+                    type="button"
+                    className="text-primary hover:underline font-medium"
+                    onClick={() => setMode("login")}
+                    data-testid="link-back-to-login"
+                  >
+                    Back to sign in
+                  </button>
+                </div>
+              </form>
+            )}
             
             <div className="mt-6 text-center text-xs text-muted-foreground">
               By signing in, you agree to our Terms of Service and Privacy Policy.
