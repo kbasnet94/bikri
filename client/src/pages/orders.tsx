@@ -392,6 +392,8 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
     return sum + (effectivePrice * item.quantity);
   }, 0);
 
+  const hasStockIssue = cart.some(item => item.quantity > item.product.stockQuantity);
+
   const handleSubmit = async () => {
     if (!customerId || cart.length === 0) return;
     
@@ -566,8 +568,12 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
                   const discountAmount = Math.round(item.product.price * item.discountPercent / 100);
                   const effectivePrice = Math.max(0, item.product.price - discountAmount);
                   const lineTotal = effectivePrice * item.quantity;
+                  const exceedsStock = item.quantity > item.product.stockQuantity;
                   return (
-                    <div key={item.productId} className="flex items-center justify-between p-3 bg-muted/20 rounded-lg">
+                    <div key={item.productId} className={cn(
+                      "flex items-center justify-between p-3 rounded-lg",
+                      exceedsStock ? "bg-red-500/10 border border-red-500/30" : "bg-muted/20"
+                    )}>
                       <div className="flex-1">
                         <div className="font-medium">{item.product.name}</div>
                         <div className="text-xs text-muted-foreground">
@@ -576,6 +582,11 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
                             <span className="text-green-600 ml-2">(-{item.discountPercent}% = {formatCurrency(discountAmount)} off)</span>
                           )}
                         </div>
+                        {exceedsStock && (
+                          <div className="text-xs text-red-500 mt-1">
+                            Only {item.product.stockQuantity} in stock
+                          </div>
+                        )}
                       </div>
                       <div className="flex items-center gap-3">
                         <div className="flex flex-col items-center">
@@ -640,8 +651,8 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
               Next
             </Button>
           ) : (
-            <Button onClick={handleSubmit} disabled={cart.length === 0 || createOrder.isPending}>
-              {createOrder.isPending ? "Creating..." : "Confirm Order"}
+            <Button onClick={handleSubmit} disabled={cart.length === 0 || createOrder.isPending || hasStockIssue}>
+              {createOrder.isPending ? "Creating..." : hasStockIssue ? "Fix Stock Issues" : "Confirm Order"}
             </Button>
           )}
         </div>
