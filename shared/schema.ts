@@ -35,10 +35,14 @@ export const customers = pgTable("customers", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Order status values: new, in-process, ready, completed, cancelled
+export const ORDER_STATUS_VALUES = ["new", "in-process", "ready", "completed", "cancelled"] as const;
+export type OrderStatusType = typeof ORDER_STATUS_VALUES[number];
+
 export const orders = pgTable("orders", {
   id: serial("id").primaryKey(),
   customerId: integer("customer_id").notNull().references(() => customers.id),
-  status: text("status").notNull().default("pending"), // pending, completed, cancelled
+  status: text("status").notNull().default("new"), // new, in-process, ready, completed, cancelled
   totalAmount: integer("total_amount").notNull(), // in cents
   orderDate: timestamp("order_date").defaultNow(),
   createdAt: timestamp("created_at").defaultNow(),
@@ -142,7 +146,10 @@ export type CreateOrderRequest = {
     quantity: number;
   }[];
 };
-export type UpdateOrderRequest = { status: string };
+export const updateOrderSchema = z.object({
+  status: z.enum(ORDER_STATUS_VALUES)
+});
+export type UpdateOrderRequest = z.infer<typeof updateOrderSchema>;
 
 export type CreateLedgerEntryRequest = InsertLedgerEntry;
 

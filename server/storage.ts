@@ -208,7 +208,7 @@ export class DatabaseStorage implements IStorage {
       const [newOrder] = await tx.insert(orders).values({
         customerId,
         totalAmount,
-        status: "completed", // Assume immediate completion for MVP
+        status: "new", // New orders start with "new" status
         orderDate: new Date()
       }).returning();
 

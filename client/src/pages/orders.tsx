@@ -26,15 +26,54 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, ShoppingCart, Trash2, CheckCircle, XCircle, Clock } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Plus, ShoppingCart, Trash2, CheckCircle, XCircle, Clock, Package, Truck } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 
+const ORDER_STATUSES = [
+  { value: "new", label: "New" },
+  { value: "in-process", label: "In-process" },
+  { value: "ready", label: "Ready for Dispatch" },
+  { value: "completed", label: "Complete" },
+  { value: "cancelled", label: "Canceled" },
+] as const;
+
+type OrderStatus = typeof ORDER_STATUSES[number]["value"];
+
+function normalizeStatus(status: string): string {
+  if (status === "pending") return "new";
+  return status;
+}
+
+function getStatusBadgeStyle(status: string) {
+  switch (status) {
+    case 'new':
+      return "bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800";
+    case 'in-process':
+      return "bg-yellow-100 text-yellow-700 border-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400 dark:border-yellow-800";
+    case 'ready':
+      return "bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-900/30 dark:text-purple-400 dark:border-purple-800";
+    case 'completed':
+      return "bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800";
+    case 'cancelled':
+      return "bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800";
+    default:
+      return "bg-gray-100 text-gray-700 border-gray-200 dark:bg-gray-900/30 dark:text-gray-400 dark:border-gray-800";
+  }
+}
+
+function getStatusLabel(status: string) {
+  const found = ORDER_STATUSES.find(s => s.value === status);
+  return found ? found.label : status;
+}
+
 export default function Orders() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<string>("new");
   const { data: orders, isLoading } = useOrders();
   const updateStatus = useUpdateOrderStatus();
   const { toast } = useToast();
@@ -42,81 +81,133 @@ export default function Orders() {
   const handleStatusUpdate = async (id: number, status: string) => {
     try {
       await updateStatus.mutateAsync({ id, status });
-      toast({ title: `Order marked as ${status}` });
+      toast({ title: `Order moved to ${getStatusLabel(status)}` });
     } catch (error: any) {
       toast({ title: "Update failed", description: error.message, variant: "destructive" });
     }
   };
 
+  const filteredOrders = orders?.filter(order => normalizeStatus(order.status) === activeTab) || [];
+
+  const getOrderCount = (status: string) => {
+    return orders?.filter(o => normalizeStatus(o.status) === status).length || 0;
+  };
+
   return (
-    <div className="space-y-8 animate-in fade-in duration-500">
+    <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-3xl font-display font-bold">Orders</h1>
           <p className="text-muted-foreground">Track and fulfill customer orders.</p>
         </div>
-        <Button onClick={() => setIsCreateOpen(true)} className="shadow-lg shadow-primary/25">
+        <Button onClick={() => setIsCreateOpen(true)} className="shadow-lg shadow-primary/25" data-testid="button-new-order">
           <Plus className="w-4 h-4 mr-2" />
           New Order
         </Button>
       </div>
 
-      <div className="bg-card rounded-xl shadow-sm border border-border/50 overflow-hidden">
-        <Table>
-          <TableHeader>
-            <TableRow className="bg-muted/30">
-              <TableHead>Order ID</TableHead>
-              <TableHead>Customer</TableHead>
-              <TableHead>Date</TableHead>
-              <TableHead>Total</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {isLoading ? (
-              <TableRow><TableCell colSpan={6} className="h-24 text-center">Loading orders...</TableCell></TableRow>
-            ) : orders?.length === 0 ? (
-              <TableRow><TableCell colSpan={6} className="h-24 text-center text-muted-foreground">No orders found.</TableCell></TableRow>
-            ) : (
-              orders?.map((order) => (
-                <TableRow key={order.id} className="group">
-                  <TableCell className="font-mono text-xs text-muted-foreground">#{order.id}</TableCell>
-                  <TableCell className="font-medium">{order.customer?.name}</TableCell>
-                  <TableCell className="text-muted-foreground text-sm">{format(new Date(order.createdAt!), 'MMM dd, yyyy')}</TableCell>
-                  <TableCell className="font-mono font-medium">${(order.totalAmount / 100).toFixed(2)}</TableCell>
-                  <TableCell>
-                    <Badge variant="outline" className={cn(
-                      "capitalize",
-                      order.status === 'completed' ? "bg-green-100 text-green-700 border-green-200" :
-                      order.status === 'pending' ? "bg-yellow-100 text-yellow-700 border-yellow-200" :
-                      "bg-red-100 text-red-700 border-red-200"
-                    )}>
-                      {order.status}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-2">
-                      {order.status === 'pending' && (
-                        <>
-                          <Button size="icon" variant="ghost" className="h-8 w-8 text-green-600 hover:text-green-700 hover:bg-green-50" onClick={() => handleStatusUpdate(order.id, 'completed')}>
-                            <CheckCircle className="w-4 h-4" />
-                          </Button>
-                          <Button size="icon" variant="ghost" className="h-8 w-8 text-red-600 hover:text-red-700 hover:bg-red-50" onClick={() => handleStatusUpdate(order.id, 'cancelled')}>
-                            <XCircle className="w-4 h-4" />
-                          </Button>
-                        </>
-                      )}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </div>
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <TabsList className="grid w-full grid-cols-5 h-auto p-1">
+          {ORDER_STATUSES.map((status) => (
+            <TabsTrigger 
+              key={status.value} 
+              value={status.value}
+              className="flex flex-col gap-1 py-2 px-3 data-[state=active]:shadow-sm"
+              data-testid={`tab-${status.value}`}
+            >
+              <span className="text-xs sm:text-sm font-medium">{status.label}</span>
+              <span className="text-[10px] sm:text-xs text-muted-foreground">
+                ({getOrderCount(status.value)})
+              </span>
+            </TabsTrigger>
+          ))}
+        </TabsList>
+
+        {ORDER_STATUSES.map((status) => (
+          <TabsContent key={status.value} value={status.value} className="mt-4">
+            <div className="bg-card rounded-xl shadow-sm border border-border/50 overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-muted/30">
+                    <TableHead>Order ID</TableHead>
+                    <TableHead>Customer</TableHead>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Total</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {isLoading ? (
+                    <TableRow><TableCell colSpan={6} className="h-24 text-center">Loading orders...</TableCell></TableRow>
+                  ) : filteredOrders.length === 0 ? (
+                    <TableRow><TableCell colSpan={6} className="h-24 text-center text-muted-foreground">No {status.label.toLowerCase()} orders.</TableCell></TableRow>
+                  ) : (
+                    filteredOrders.map((order) => (
+                      <TableRow key={order.id} className="group" data-testid={`order-row-${order.id}`}>
+                        <TableCell className="font-mono text-xs text-muted-foreground">#{order.id}</TableCell>
+                        <TableCell className="font-medium">{order.customer?.name}</TableCell>
+                        <TableCell className="text-muted-foreground text-sm">{format(new Date(order.createdAt!), 'MMM dd, yyyy')}</TableCell>
+                        <TableCell className="font-mono font-medium">${(order.totalAmount / 100).toFixed(2)}</TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className={cn("capitalize", getStatusBadgeStyle(normalizeStatus(order.status)))}>
+                            {getStatusLabel(normalizeStatus(order.status))}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <OrderActions order={order} onStatusUpdate={handleStatusUpdate} />
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </TabsContent>
+        ))}
+      </Tabs>
 
       <CreateOrderDialog open={isCreateOpen} onOpenChange={setIsCreateOpen} />
+    </div>
+  );
+}
+
+function OrderActions({ order, onStatusUpdate }: { order: any; onStatusUpdate: (id: number, status: string) => void }) {
+  const normalizedStatus = normalizeStatus(order.status);
+  const nextStatusMap: Record<string, string> = {
+    'new': 'in-process',
+    'in-process': 'ready',
+    'ready': 'completed',
+  };
+
+  const nextStatus = nextStatusMap[normalizedStatus];
+  const canCancel = normalizedStatus !== 'completed' && normalizedStatus !== 'cancelled';
+
+  return (
+    <div className="flex justify-end gap-2">
+      {nextStatus && (
+        <Select onValueChange={(value) => onStatusUpdate(order.id, value)}>
+          <SelectTrigger className="w-[140px] h-8">
+            <SelectValue placeholder="Move to..." />
+          </SelectTrigger>
+          <SelectContent>
+            {ORDER_STATUSES.filter(s => s.value !== normalizedStatus && s.value !== 'cancelled').map(s => (
+              <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
+      {canCancel && (
+        <Button 
+          size="icon" 
+          variant="ghost" 
+          className="h-8 w-8 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20" 
+          onClick={() => onStatusUpdate(order.id, 'cancelled')}
+          data-testid={`button-cancel-order-${order.id}`}
+        >
+          <XCircle className="w-4 h-4" />
+        </Button>
+      )}
     </div>
   );
 }

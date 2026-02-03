@@ -4,6 +4,7 @@ import {
   insertProductSchema,
   insertCustomerSchema,
   insertLedgerEntrySchema,
+  updateOrderSchema,
   categories,
   products,
   customers,
@@ -174,7 +175,7 @@ export const api = {
     updateStatus: {
       method: 'PATCH' as const,
       path: '/api/orders/:id/status',
-      input: z.object({ status: z.string() }),
+      input: updateOrderSchema,
       responses: {
         200: z.custom<typeof orders.$inferSelect>(),
         404: errorSchemas.notFound,
