@@ -36,11 +36,17 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { z } from "zod";
 
 // Create a schema that coerces strings to numbers for form inputs
+// Price is entered as decimal (e.g., 12.99) and converted to cents for storage
 const formSchema = insertProductSchema.extend({
   price: z.coerce.number().min(0, "Price must be positive"),
   stockQuantity: z.coerce.number().min(0, "Stock cannot be negative"),
   categoryId: z.coerce.number().optional().nullable(),
 });
+
+// Helper to convert cents to decimal for display
+const centsToDecimal = (cents: number) => cents / 100;
+// Helper to convert decimal to cents for storage
+const decimalToCents = (decimal: number) => Math.round(decimal * 100);
 
 export default function Inventory() {
   const [search, setSearch] = useState("");
@@ -190,6 +196,7 @@ export default function Inventory() {
 
 function ProductDialog({ open, onOpenChange, mode, defaultValues, categories }: any) {
   const { toast } = useToast();
+  const { symbol } = useCurrency();
   const createProduct = useCreateProduct();
   const updateProduct = useUpdateProduct();
   const createCategory = useCreateCategory();
@@ -198,16 +205,21 @@ function ProductDialog({ open, onOpenChange, mode, defaultValues, categories }: 
   const [newCategoryName, setNewCategoryName] = useState("");
   const [showCategoryManager, setShowCategoryManager] = useState(false);
   
+  // Convert price from cents to decimal for editing
+  const formDefaults = defaultValues 
+    ? { ...defaultValues, price: centsToDecimal(defaultValues.price || 0) }
+    : {
+        name: "",
+        sku: "",
+        description: "",
+        price: 0,
+        stockQuantity: 0,
+        categoryId: null,
+      };
+  
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
-    defaultValues: defaultValues || {
-      name: "",
-      sku: "",
-      description: "",
-      price: 0,
-      stockQuantity: 0,
-      categoryId: null,
-    },
+    defaultValues: formDefaults,
   });
 
   const handleCreateCategory = async () => {
@@ -238,11 +250,14 @@ function ProductDialog({ open, onOpenChange, mode, defaultValues, categories }: 
 
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
     try {
+      // Convert price from decimal to cents for storage
+      const dataToSubmit = { ...values, price: decimalToCents(values.price) };
+      
       if (mode === "create") {
-        await createProduct.mutateAsync(values as InsertProduct);
+        await createProduct.mutateAsync(dataToSubmit as InsertProduct);
         toast({ title: "Product created successfully" });
       } else {
-        await updateProduct.mutateAsync({ id: defaultValues.id, ...values } as any);
+        await updateProduct.mutateAsync({ id: defaultValues.id, ...dataToSubmit } as any);
         toast({ title: "Product updated successfully" });
       }
       onOpenChange(false);
@@ -395,8 +410,8 @@ function ProductDialog({ open, onOpenChange, mode, defaultValues, categories }: 
                 name="price"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Price (cents)</FormLabel>
-                    <FormControl><Input type="number" {...field} data-testid="input-product-price" /></FormControl>
+                    <FormLabel>Price ({symbol})</FormLabel>
+                    <FormControl><Input type="number" step="0.01" placeholder="0.00" {...field} data-testid="input-product-price" /></FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
