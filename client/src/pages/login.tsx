@@ -3,7 +3,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { CreditCard, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
+import { Logo } from "@/components/logo";
+import logoDark from "@assets/Bikri_Logo_1_1770108812464.png";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 
@@ -140,10 +142,7 @@ export default function Login() {
         <div className="absolute inset-0 bg-gradient-to-tr from-primary/20 via-transparent to-transparent" />
         
         <div className="relative z-10 flex items-center gap-3">
-          <div className="bg-white/10 p-2 rounded-xl backdrop-blur-md">
-            <CreditCard className="w-6 h-6" />
-          </div>
-          <span className="font-display font-bold text-xl tracking-tight">Bikri</span>
+          <img src={logoDark} alt="Bikri" className="h-10 w-auto" />
         </div>
 
         <div className="relative z-10 max-w-lg">
@@ -165,8 +164,8 @@ export default function Login() {
       <div className="flex-1 flex items-center justify-center p-6 bg-muted/10">
         <Card className="w-full max-w-md shadow-xl border-border/50">
           <CardHeader className="space-y-1 text-center pb-6">
-            <div className="mx-auto bg-primary/10 w-12 h-12 rounded-xl flex items-center justify-center mb-4 lg:hidden">
-              <CreditCard className="w-6 h-6 text-primary" />
+            <div className="mx-auto mb-4 lg:hidden">
+              <Logo size="lg" />
             </div>
             <CardTitle className="text-2xl font-bold font-display">
               {mode === "login" && "Welcome back"}

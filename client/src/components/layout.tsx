@@ -9,8 +9,8 @@ import {
   LogOut,
   Menu,
   X,
-  CreditCard
 } from "lucide-react";
+import { Logo } from "./logo";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "./theme-toggle";
@@ -30,13 +30,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const NavContent = () => (
     <>
       <div className="flex items-center gap-3 px-6 py-8">
-        <div className="bg-primary/10 p-2 rounded-xl">
-          <CreditCard className="w-6 h-6 text-primary" />
-        </div>
-        <div>
-          <h1 className="font-display font-bold text-xl tracking-tight">Bikri</h1>
-          <p className="text-xs text-muted-foreground font-medium">Business Manager</p>
-        </div>
+        <Logo size="md" />
       </div>
 
       <nav className="flex-1 px-4 space-y-1">
@@ -118,10 +112,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         {/* Mobile Header */}
         <div className="lg:hidden p-4 border-b border-border flex items-center justify-between bg-card/80 backdrop-blur-md sticky top-0 z-20">
           <div className="flex items-center gap-2">
-            <div className="bg-primary/10 p-1.5 rounded-lg">
-              <CreditCard className="w-5 h-5 text-primary" />
-            </div>
-            <span className="font-display font-bold text-lg">Bikri</span>
+            <Logo size="sm" />
           </div>
           <Button variant="ghost" size="icon" onClick={() => setIsMobileMenuOpen(true)}>
             <Menu className="w-6 h-6" />
