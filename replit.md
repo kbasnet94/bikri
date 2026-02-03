@@ -44,6 +44,7 @@ Preferred communication style: Simple, everyday language.
 - **Registration**: New users can optionally create a business during registration
 - **User Management**: Owners/admins can add users by email; new users set their password via "Set Password" flow
 - **Security**: Cross-business user reassignment is prevented - users already belonging to another business cannot be added
+- **Currency Settings**: Businesses can set their preferred currency (USD, EUR, GBP, INR, AED, SAR, PKR, BDT, CNY, JPY, CAD, AUD)
 - **API Endpoints**:
   - `GET /api/business` - Get current user's business
   - `PUT /api/business` - Update business name (owner/admin only)
