@@ -33,8 +33,8 @@ export interface IStorage {
   updateOrderStatus(businessId: string, id: number, status: string): Promise<Order | undefined>;
 
   // Ledger
-  getLedgerEntries(customerId: number): Promise<LedgerEntry[]>;
-  createLedgerEntry(entry: InsertLedgerEntry): Promise<LedgerEntry>;
+  getLedgerEntries(businessId: string, customerId: number): Promise<LedgerEntry[]>;
+  createLedgerEntry(businessId: string, entry: InsertLedgerEntry): Promise<LedgerEntry>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -204,6 +204,7 @@ export class DatabaseStorage implements IStorage {
       }
 
       await tx.insert(ledgerEntries).values({
+        businessId,
         customerId,
         type: "purchase",
         amount: totalAmount,
@@ -225,16 +226,16 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Ledger
-  async getLedgerEntries(customerId: number): Promise<LedgerEntry[]> {
+  async getLedgerEntries(businessId: string, customerId: number): Promise<LedgerEntry[]> {
     return await db.query.ledgerEntries.findMany({
-      where: eq(ledgerEntries.customerId, customerId),
+      where: and(eq(ledgerEntries.businessId, businessId), eq(ledgerEntries.customerId, customerId)),
       orderBy: [desc(ledgerEntries.entryDate)],
     });
   }
 
-  async createLedgerEntry(entry: InsertLedgerEntry): Promise<LedgerEntry> {
+  async createLedgerEntry(businessId: string, entry: InsertLedgerEntry): Promise<LedgerEntry> {
     return await db.transaction(async (tx) => {
-      const [newEntry] = await tx.insert(ledgerEntries).values(entry).returning();
+      const [newEntry] = await tx.insert(ledgerEntries).values({ ...entry, businessId }).returning();
 
       // Update balance based on type
       let delta = 0;
@@ -246,7 +247,7 @@ export class DatabaseStorage implements IStorage {
 
       await tx.update(customers)
         .set({ currentBalance: sql`${customers.currentBalance} + ${delta}` })
-        .where(eq(customers.id, entry.customerId));
+        .where(and(eq(customers.id, entry.customerId), eq(customers.businessId, businessId)));
 
       return newEntry;
     });

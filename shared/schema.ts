@@ -64,6 +64,7 @@ export const orderItems = pgTable("order_items", {
 
 export const ledgerEntries = pgTable("ledger_entries", {
   id: serial("id").primaryKey(),
+  businessId: varchar("business_id").notNull().references(() => businesses.id),
   customerId: integer("customer_id").notNull().references(() => customers.id),
   type: text("type").notNull(), // debit (increase balance), credit (decrease balance/payment), purchase, adjustment
   amount: integer("amount").notNull(), // in cents
@@ -119,7 +120,7 @@ export const insertProductSchema = createInsertSchema(products).omit({ id: true,
 export const insertCustomerSchema = createInsertSchema(customers).omit({ id: true, createdAt: true, currentBalance: true, businessId: true }); // currentBalance should be updated via ledger
 export const insertOrderSchema = createInsertSchema(orders).omit({ id: true, createdAt: true, totalAmount: true, businessId: true }); // totalAmount calculated from items
 export const insertOrderItemSchema = createInsertSchema(orderItems).omit({ id: true });
-export const insertLedgerEntrySchema = createInsertSchema(ledgerEntries).omit({ id: true, createdAt: true });
+export const insertLedgerEntrySchema = createInsertSchema(ledgerEntries).omit({ id: true, createdAt: true, businessId: true });
 
 // === EXPLICIT API CONTRACT TYPES ===
 

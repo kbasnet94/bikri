@@ -190,13 +190,13 @@ export async function registerRoutes(
     }
   });
 
-  // Ledger - these still use customerId but require auth for access control
+  // Ledger - require auth and businessId for full isolation
   app.get(api.ledger.list.path, isAuthenticated, requireBusiness, async (req: any, res) => {
     const businessId = req.user.businessId;
     // Verify customer belongs to this business
     const customer = await storage.getCustomer(businessId, Number(req.params.customerId));
     if (!customer) return res.status(404).json({ message: "Customer not found" });
-    const entries = await storage.getLedgerEntries(Number(req.params.customerId));
+    const entries = await storage.getLedgerEntries(businessId, Number(req.params.customerId));
     res.json(entries);
   });
 
@@ -207,7 +207,7 @@ export async function registerRoutes(
       // Verify customer belongs to this business
       const customer = await storage.getCustomer(businessId, input.customerId);
       if (!customer) return res.status(404).json({ message: "Customer not found" });
-      const entry = await storage.createLedgerEntry(input);
+      const entry = await storage.createLedgerEntry(businessId, input);
       res.status(201).json(entry);
     } catch (err) {
       if (err instanceof z.ZodError) {
