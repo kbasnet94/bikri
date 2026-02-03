@@ -10,7 +10,10 @@ const addUserSchema = z.object({
 });
 
 const updateBusinessSchema = z.object({
-  name: z.string().min(1),
+  name: z.string().min(1).optional(),
+  currency: z.string().min(1).optional(),
+}).refine(data => data.name || data.currency, {
+  message: "At least one field (name or currency) must be provided",
 });
 
 const updateUserRoleSchema = z.object({
