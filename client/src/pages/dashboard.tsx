@@ -1,6 +1,7 @@
 import { useOrders } from "@/hooks/use-orders";
 import { useProducts } from "@/hooks/use-products";
 import { useCustomers } from "@/hooks/use-customers";
+import { useCurrency } from "@/hooks/use-currency";
 import { StatsCard } from "@/components/stats-card";
 import { DollarSign, AlertTriangle, TrendingUp, Users, Calendar } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,6 +14,7 @@ export default function Dashboard() {
   const { data: orders, isLoading: loadingOrders } = useOrders();
   const { data: products, isLoading: loadingProducts } = useProducts();
   const { data: customers, isLoading: loadingCustomers } = useCustomers();
+  const { formatCurrency, formatCurrencyShort, symbol } = useCurrency();
 
   if (loadingOrders || loadingProducts || loadingCustomers) {
     return <DashboardSkeleton />;
@@ -63,13 +65,13 @@ export default function Dashboard() {
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
         <StatsCard
           title="Total Revenue"
-          value={`$${(totalSales / 100).toLocaleString()}`}
+          value={formatCurrencyShort(totalSales)}
           icon={DollarSign}
           description="Lifetime sales volume"
         />
         <StatsCard
           title="Monthly Revenue"
-          value={`$${(monthlyRevenue / 100).toLocaleString()}`}
+          value={formatCurrencyShort(monthlyRevenue)}
           icon={Calendar}
           description={format(now, 'MMMM yyyy')}
         />
@@ -82,7 +84,7 @@ export default function Dashboard() {
         />
         <StatsCard
           title="Outstanding Credit"
-          value={`$${(totalCreditBalance / 100).toLocaleString()}`}
+          value={formatCurrencyShort(totalCreditBalance)}
           icon={Users}
           description="Total customer debt"
         />
@@ -115,7 +117,7 @@ export default function Dashboard() {
                     fontSize={12}
                     tickLine={false}
                     axisLine={false}
-                    tickFormatter={(value) => `$${value}`}
+                    tickFormatter={(value) => `${symbol}${value}`}
                   />
                   <Tooltip 
                     cursor={{fill: 'transparent'}}
@@ -141,7 +143,7 @@ export default function Dashboard() {
                     <p className="text-xs text-muted-foreground">{format(new Date(order.createdAt!), 'MMM dd, HH:mm')}</p>
                   </div>
                   <div className="flex flex-col items-end gap-1">
-                    <span className="font-bold text-sm">${(order.totalAmount / 100).toFixed(2)}</span>
+                    <span className="font-bold text-sm">{formatCurrency(order.totalAmount)}</span>
                     <span className={cn(
                       "text-[10px] px-2 py-0.5 rounded-full font-medium uppercase tracking-wider",
                       order.status === 'completed' ? "bg-green-100 text-green-700" :

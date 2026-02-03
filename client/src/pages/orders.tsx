@@ -3,6 +3,7 @@ import { useOrders, useCreateOrder, useUpdateOrderStatus } from "@/hooks/use-ord
 import { useCustomers, useCreateCustomer } from "@/hooks/use-customers";
 import { Label } from "@/components/ui/label";
 import { useProducts } from "@/hooks/use-products";
+import { useCurrency } from "@/hooks/use-currency";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -78,6 +79,7 @@ export default function Orders() {
   const { data: orders, isLoading } = useOrders();
   const updateStatus = useUpdateOrderStatus();
   const { toast } = useToast();
+  const { formatCurrency } = useCurrency();
 
   const handleStatusUpdate = async (id: number, status: string) => {
     try {
@@ -149,7 +151,7 @@ export default function Orders() {
                         <TableCell className="font-mono text-xs text-muted-foreground">#{order.id}</TableCell>
                         <TableCell className="font-medium">{order.customer?.name}</TableCell>
                         <TableCell className="text-muted-foreground text-sm">{format(new Date(order.createdAt!), 'MMM dd, yyyy')}</TableCell>
-                        <TableCell className="font-mono font-medium">${(order.totalAmount / 100).toFixed(2)}</TableCell>
+                        <TableCell className="font-mono font-medium">{formatCurrency(order.totalAmount)}</TableCell>
                         <TableCell>
                           <Badge variant="outline" className={cn("capitalize", getStatusBadgeStyle(normalizeStatus(order.status)))}>
                             {getStatusLabel(normalizeStatus(order.status))}
@@ -228,6 +230,7 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
   const createOrder = useCreateOrder();
   const createCustomer = useCreateCustomer();
   const { toast } = useToast();
+  const { formatCurrency } = useCurrency();
   
   const filteredCustomers = customers?.filter(c => {
     if (!customerSearch) return true;
@@ -426,7 +429,7 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
                       <div className="text-xs text-muted-foreground">Stock: {p.stockQuantity}</div>
                     </div>
                     <div className="flex items-center gap-4">
-                      <div className="font-mono text-sm">${(p.price / 100).toFixed(2)}</div>
+                      <div className="font-mono text-sm">{formatCurrency(p.price)}</div>
                       <Button size="sm" variant="secondary" onClick={() => addToCart(p)} disabled={p.stockQuantity === 0}>
                         Add
                       </Button>
@@ -446,7 +449,7 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
                   <div key={item.productId} className="flex items-center justify-between p-3 bg-muted/20 rounded-lg">
                     <div className="flex-1">
                       <div className="font-medium">{item.product.name}</div>
-                      <div className="text-xs text-muted-foreground">${(item.product.price / 100).toFixed(2)} each</div>
+                      <div className="text-xs text-muted-foreground">{formatCurrency(item.product.price)} each</div>
                     </div>
                     <div className="flex items-center gap-3">
                       <Input 
@@ -456,7 +459,7 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
                         className="w-16 h-8 text-center"
                       />
                       <div className="font-mono font-medium w-20 text-right">
-                        ${((item.product.price * item.quantity) / 100).toFixed(2)}
+                        {formatCurrency(item.product.price * item.quantity)}
                       </div>
                       <Button size="icon" variant="ghost" className="h-8 w-8 text-red-500 hover:text-red-700" onClick={() => removeFromCart(item.productId)}>
                         <Trash2 className="w-4 h-4" />
@@ -468,7 +471,7 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
 
               <div className="border-t pt-4 flex justify-between items-center">
                 <div className="text-muted-foreground">Total Amount</div>
-                <div className="text-2xl font-bold font-mono">${(totalAmount / 100).toFixed(2)}</div>
+                <div className="text-2xl font-bold font-mono">{formatCurrency(totalAmount)}</div>
               </div>
             </div>
           )}

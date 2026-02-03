@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useCustomers, useCreateCustomer, useCreateLedgerEntry, useCustomerLedger } from "@/hooks/use-customers";
+import { useCurrency } from "@/hooks/use-currency";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -34,6 +35,7 @@ export default function Customers() {
   const [search, setSearch] = useState("");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<any | null>(null);
+  const { formatCurrency, formatCurrencyShort } = useCurrency();
 
   const { data: customers, isLoading } = useCustomers(search);
 
@@ -95,7 +97,7 @@ export default function Customers() {
                       <span className="text-muted-foreground">{customer.phone}</span>
                     </div>
                   </TableCell>
-                  <TableCell className="text-right font-mono">${(customer.creditLimit / 100).toLocaleString()}</TableCell>
+                  <TableCell className="text-right font-mono">{formatCurrencyShort(customer.creditLimit)}</TableCell>
                   <TableCell className="text-right">
                     <span className={cn(
                       "font-mono font-bold px-2 py-1 rounded-lg text-xs",
@@ -103,7 +105,7 @@ export default function Customers() {
                         ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" 
                         : "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
                     )}>
-                      ${(customer.currentBalance / 100).toLocaleString()}
+                      {formatCurrencyShort(customer.currentBalance)}
                     </span>
                   </TableCell>
                   <TableCell className="text-right">
@@ -238,6 +240,7 @@ function CustomerDetailsDialog({ customer, open, onOpenChange }: any) {
   const createLedgerEntry = useCreateLedgerEntry();
   const { toast } = useToast();
   const [isAddingEntry, setIsAddingEntry] = useState(false);
+  const { formatCurrency, formatCurrencyShort } = useCurrency();
 
   const entryForm = useForm({
     resolver: zodResolver(insertLedgerEntrySchema),
@@ -270,9 +273,9 @@ function CustomerDetailsDialog({ customer, open, onOpenChange }: any) {
               <p className="text-muted-foreground flex items-center gap-2 mt-1">
                 <Wallet className="w-4 h-4" />
                 Balance: <span className={customer.currentBalance > 0 ? "text-red-500 font-bold" : "text-green-500 font-bold"}>
-                  ${(customer.currentBalance / 100).toLocaleString()}
+                  {formatCurrencyShort(customer.currentBalance)}
                 </span>
-                <span className="text-xs ml-2 bg-muted px-2 py-0.5 rounded-full">Limit: ${(customer.creditLimit / 100).toLocaleString()}</span>
+                <span className="text-xs ml-2 bg-muted px-2 py-0.5 rounded-full">Limit: {formatCurrencyShort(customer.creditLimit)}</span>
               </p>
             </div>
           </div>
@@ -379,7 +382,7 @@ function CustomerDetailsDialog({ customer, open, onOpenChange }: any) {
                         "text-right font-mono font-medium",
                         entry.type === 'credit' ? "text-green-600" : "text-foreground"
                       )}>
-                        {entry.type === 'credit' ? "-" : "+"}${ (entry.amount / 100).toFixed(2) }
+                        {entry.type === 'credit' ? "-" : "+"}{formatCurrency(entry.amount)}
                       </TableCell>
                     </TableRow>
                   ))

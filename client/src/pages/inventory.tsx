@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useProducts, useCreateProduct, useUpdateProduct, useDeleteProduct } from "@/hooks/use-products";
 import { useCategories } from "@/hooks/use-categories";
+import { useCurrency } from "@/hooks/use-currency";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -46,6 +47,7 @@ export default function Inventory() {
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<ProductResponse | null>(null);
+  const { formatCurrency } = useCurrency();
 
   const { data: products, isLoading } = useProducts({ 
     search, 
@@ -143,7 +145,7 @@ export default function Inventory() {
                       <span className="text-muted-foreground text-xs italic">Uncategorized</span>
                     )}
                   </TableCell>
-                  <TableCell className="text-right">${(product.price / 100).toFixed(2)}</TableCell>
+                  <TableCell className="text-right">{formatCurrency(product.price)}</TableCell>
                   <TableCell className="text-right">
                     <span className={product.stockQuantity < 10 ? "text-red-500 font-bold" : ""}>
                       {product.stockQuantity}
