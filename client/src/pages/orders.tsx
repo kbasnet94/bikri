@@ -215,10 +215,109 @@ function OrderActions({ order, onStatusUpdate }: { order: any; onStatusUpdate: (
   );
 }
 
+function ProductRow({ 
+  product, 
+  isInCart, 
+  cartQuantity, 
+  cartDiscount,
+  formatCurrency, 
+  onAdd, 
+  onRemove 
+}: { 
+  product: any; 
+  isInCart: boolean;
+  cartQuantity: number;
+  cartDiscount: number;
+  formatCurrency: (cents: number) => string;
+  onAdd: (quantity: number, discount: number) => void;
+  onRemove: () => void;
+}) {
+  const [quantity, setQuantity] = useState(cartQuantity);
+  const [discount, setDiscount] = useState(cartDiscount);
+  
+  const effectivePrice = Math.max(0, product.price - discount);
+  const lineTotal = effectivePrice * quantity;
+  
+  return (
+    <div className={cn(
+      "p-4 border rounded-lg transition-all",
+      isInCart ? "border-primary bg-primary/5" : "hover:bg-muted/5"
+    )}>
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex-1 min-w-0">
+          <div className="font-medium">{product.name}</div>
+          <div className="text-xs text-muted-foreground">
+            Stock: {product.stockQuantity} | Base price: {formatCurrency(product.price)}
+          </div>
+        </div>
+        
+        <div className="flex flex-col sm:flex-row items-end sm:items-center gap-3">
+          <div className="flex items-center gap-2">
+            <div className="flex flex-col items-center">
+              <span className="text-[10px] text-muted-foreground mb-1">Qty</span>
+              <Input 
+                type="number" 
+                value={quantity} 
+                onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value) || 1))} 
+                className="w-16 h-8 text-center"
+                min={1}
+                max={product.stockQuantity}
+                data-testid={`input-quantity-${product.id}`}
+              />
+            </div>
+            <div className="flex flex-col items-center">
+              <span className="text-[10px] text-muted-foreground mb-1">Discount</span>
+              <Input 
+                type="number" 
+                value={discount / 100} 
+                onChange={(e) => setDiscount(Math.max(0, (parseFloat(e.target.value) || 0) * 100))} 
+                className="w-20 h-8 text-center"
+                min={0}
+                step={0.01}
+                placeholder="0.00"
+                data-testid={`input-discount-${product.id}`}
+              />
+            </div>
+          </div>
+          
+          <div className="text-right min-w-[80px]">
+            <div className="font-mono font-medium text-sm">{formatCurrency(lineTotal)}</div>
+            {discount > 0 && (
+              <div className="text-[10px] text-green-600">-{formatCurrency(discount * quantity)}</div>
+            )}
+          </div>
+          
+          {isInCart ? (
+            <Button 
+              size="sm" 
+              variant="destructive" 
+              onClick={onRemove}
+              data-testid={`button-remove-product-${product.id}`}
+            >
+              <Trash2 className="w-3 h-3 mr-1" />
+              Remove
+            </Button>
+          ) : (
+            <Button 
+              size="sm" 
+              onClick={() => onAdd(quantity, discount)} 
+              disabled={product.stockQuantity === 0}
+              data-testid={`button-add-product-${product.id}`}
+            >
+              <Plus className="w-3 h-3 mr-1" />
+              Add
+            </Button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CreateOrderDialog({ open, onOpenChange }: any) {
   const [step, setStep] = useState(1);
   const [customerId, setCustomerId] = useState<string>("");
-  const [cart, setCart] = useState<{ productId: number; quantity: number; product: any }[]>([]);
+  const [cart, setCart] = useState<{ productId: number; quantity: number; discount: number; product: any }[]>([]);
   const [customerSearch, setCustomerSearch] = useState("");
   const [showNewCustomerForm, setShowNewCustomerForm] = useState(false);
   const [newCustomerName, setNewCustomerName] = useState("");
@@ -261,12 +360,13 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
     }
   };
 
-  const addToCart = (product: any) => {
+  const addToCart = (product: any, quantity: number, discount: number) => {
+    if (quantity < 1) return;
     const existing = cart.find(item => item.productId === product.id);
     if (existing) {
-      setCart(cart.map(item => item.productId === product.id ? { ...item, quantity: item.quantity + 1 } : item));
+      setCart(cart.map(item => item.productId === product.id ? { ...item, quantity, discount } : item));
     } else {
-      setCart([...cart, { productId: product.id, quantity: 1, product }]);
+      setCart([...cart, { productId: product.id, quantity, discount, product }]);
     }
   };
 
@@ -279,7 +379,15 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
     setCart(cart.map(item => item.productId === productId ? { ...item, quantity: qty } : item));
   };
 
-  const totalAmount = cart.reduce((sum, item) => sum + (item.product.price * item.quantity), 0);
+  const updateDiscount = (productId: number, discount: number) => {
+    if (discount < 0) return;
+    setCart(cart.map(item => item.productId === productId ? { ...item, discount } : item));
+  };
+
+  const totalAmount = cart.reduce((sum, item) => {
+    const effectivePrice = Math.max(0, item.product.price - item.discount);
+    return sum + (effectivePrice * item.quantity);
+  }, 0);
 
   const handleSubmit = async () => {
     if (!customerId || cart.length === 0) return;
@@ -287,7 +395,11 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
     try {
       await createOrder.mutateAsync({
         customerId: parseInt(customerId),
-        items: cart.map(item => ({ productId: item.productId, quantity: item.quantity }))
+        items: cart.map(item => ({ 
+          productId: item.productId, 
+          quantity: item.quantity,
+          discount: item.discount > 0 ? item.discount : undefined
+        }))
       });
       toast({ title: "Order created successfully!" });
       onOpenChange(false);
@@ -421,21 +533,23 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
                 <div className="text-sm text-muted-foreground">{cart.length} items in cart</div>
               </div>
               
-              <div className="grid grid-cols-1 gap-4">
-                {products?.map(p => (
-                  <div key={p.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/5">
-                    <div>
-                      <div className="font-medium">{p.name}</div>
-                      <div className="text-xs text-muted-foreground">Stock: {p.stockQuantity}</div>
-                    </div>
-                    <div className="flex items-center gap-4">
-                      <div className="font-mono text-sm">{formatCurrency(p.price)}</div>
-                      <Button size="sm" variant="secondary" onClick={() => addToCart(p)} disabled={p.stockQuantity === 0}>
-                        Add
-                      </Button>
-                    </div>
-                  </div>
-                ))}
+              <div className="grid grid-cols-1 gap-3">
+                {products?.map(p => {
+                  const cartItem = cart.find(item => item.productId === p.id);
+                  const isInCart = !!cartItem;
+                  return (
+                    <ProductRow 
+                      key={p.id} 
+                      product={p} 
+                      isInCart={isInCart}
+                      cartQuantity={cartItem?.quantity || 1}
+                      cartDiscount={cartItem?.discount || 0}
+                      formatCurrency={formatCurrency}
+                      onAdd={(qty, discount) => addToCart(p, qty, discount)}
+                      onRemove={() => removeFromCart(p.id)}
+                    />
+                  );
+                })}
               </div>
             </div>
           )}
@@ -445,33 +559,65 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
               <h3 className="font-semibold text-lg">Review Order</h3>
               
               <div className="space-y-3">
-                {cart.map(item => (
-                  <div key={item.productId} className="flex items-center justify-between p-3 bg-muted/20 rounded-lg">
-                    <div className="flex-1">
-                      <div className="font-medium">{item.product.name}</div>
-                      <div className="text-xs text-muted-foreground">{formatCurrency(item.product.price)} each</div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <Input 
-                        type="number" 
-                        value={item.quantity} 
-                        onChange={(e) => updateQuantity(item.productId, parseInt(e.target.value))} 
-                        className="w-16 h-8 text-center"
-                      />
-                      <div className="font-mono font-medium w-20 text-right">
-                        {formatCurrency(item.product.price * item.quantity)}
+                {cart.map(item => {
+                  const effectivePrice = Math.max(0, item.product.price - item.discount);
+                  const lineTotal = effectivePrice * item.quantity;
+                  return (
+                    <div key={item.productId} className="flex items-center justify-between p-3 bg-muted/20 rounded-lg">
+                      <div className="flex-1">
+                        <div className="font-medium">{item.product.name}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {formatCurrency(item.product.price)} each
+                          {item.discount > 0 && (
+                            <span className="text-green-600 ml-2">(-{formatCurrency(item.discount)} discount)</span>
+                          )}
+                        </div>
                       </div>
-                      <Button size="icon" variant="ghost" className="h-8 w-8 text-red-500 hover:text-red-700" onClick={() => removeFromCart(item.productId)}>
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
+                      <div className="flex items-center gap-3">
+                        <div className="flex flex-col items-center">
+                          <span className="text-[10px] text-muted-foreground">Qty</span>
+                          <Input 
+                            type="number" 
+                            value={item.quantity} 
+                            onChange={(e) => updateQuantity(item.productId, parseInt(e.target.value) || 1)} 
+                            className="w-16 h-8 text-center"
+                            min={1}
+                          />
+                        </div>
+                        <div className="flex flex-col items-center">
+                          <span className="text-[10px] text-muted-foreground">Discount</span>
+                          <Input 
+                            type="number" 
+                            value={item.discount / 100} 
+                            onChange={(e) => updateDiscount(item.productId, Math.max(0, (parseFloat(e.target.value) || 0) * 100))} 
+                            className="w-20 h-8 text-center"
+                            min={0}
+                            step={0.01}
+                          />
+                        </div>
+                        <div className="font-mono font-medium w-20 text-right">
+                          {formatCurrency(lineTotal)}
+                        </div>
+                        <Button size="icon" variant="ghost" className="h-8 w-8 text-red-500 hover:text-red-700" onClick={() => removeFromCart(item.productId)}>
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
 
-              <div className="border-t pt-4 flex justify-between items-center">
-                <div className="text-muted-foreground">Total Amount</div>
-                <div className="text-2xl font-bold font-mono">{formatCurrency(totalAmount)}</div>
+              <div className="border-t pt-4">
+                {cart.some(item => item.discount > 0) && (
+                  <div className="flex justify-between items-center text-sm text-green-600 mb-2">
+                    <div>Total Discounts</div>
+                    <div className="font-mono">-{formatCurrency(cart.reduce((sum, item) => sum + (item.discount * item.quantity), 0))}</div>
+                  </div>
+                )}
+                <div className="flex justify-between items-center">
+                  <div className="text-muted-foreground">Total Amount</div>
+                  <div className="text-2xl font-bold font-mono">{formatCurrency(totalAmount)}</div>
+                </div>
               </div>
             </div>
           )}

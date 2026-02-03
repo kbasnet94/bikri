@@ -29,7 +29,7 @@ export interface IStorage {
   // Orders
   getOrders(query?: { customerId?: number }): Promise<OrderResponse[]>;
   getOrder(id: number): Promise<OrderResponse | undefined>;
-  createOrder(customerId: number, items: { productId: number; quantity: number }[]): Promise<Order>;
+  createOrder(customerId: number, items: { productId: number; quantity: number; discount?: number }[]): Promise<Order>;
   updateOrderStatus(id: number, status: string): Promise<Order | undefined>;
 
   // Ledger
@@ -174,10 +174,10 @@ export class DatabaseStorage implements IStorage {
     });
   }
 
-  async createOrder(customerId: number, items: { productId: number; quantity: number }[]): Promise<Order> {
+  async createOrder(customerId: number, items: { productId: number; quantity: number; discount?: number }[]): Promise<Order> {
     // 1. Calculate total and verify stock
     let totalAmount = 0;
-    const finalItems: { productId: number; quantity: number; unitPrice: number }[] = [];
+    const finalItems: { productId: number; quantity: number; unitPrice: number; discount: number }[] = [];
 
     // Note: In a real app we'd use a transaction here.
     // Drizzle transaction:
@@ -190,12 +190,15 @@ export class DatabaseStorage implements IStorage {
         if (!product) throw new Error(`Product ${item.productId} not found`);
         if (product.stockQuantity < item.quantity) throw new Error(`Insufficient stock for ${product.name}`);
 
-        const itemTotal = product.price * item.quantity;
+        const discount = item.discount || 0;
+        const effectivePrice = Math.max(0, product.price - discount);
+        const itemTotal = effectivePrice * item.quantity;
         totalAmount += itemTotal;
         finalItems.push({
           productId: item.productId,
           quantity: item.quantity,
-          unitPrice: product.price
+          unitPrice: product.price,
+          discount: discount
         });
 
         // Decrement stock
@@ -218,7 +221,8 @@ export class DatabaseStorage implements IStorage {
           orderId: newOrder.id,
           productId: item.productId,
           quantity: item.quantity,
-          unitPrice: item.unitPrice
+          unitPrice: item.unitPrice,
+          discount: item.discount
         });
       }
 

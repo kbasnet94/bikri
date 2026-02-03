@@ -54,6 +54,7 @@ export const orderItems = pgTable("order_items", {
   productId: integer("product_id").notNull().references(() => products.id),
   quantity: integer("quantity").notNull(),
   unitPrice: integer("unit_price").notNull(), // snapshot of price at time of order
+  discount: integer("discount").notNull().default(0), // discount in cents per unit
 });
 
 export const ledgerEntries = pgTable("ledger_entries", {
@@ -144,6 +145,7 @@ export type CreateOrderRequest = {
   items: {
     productId: number;
     quantity: number;
+    discount?: number; // discount in cents per unit
   }[];
 };
 export const updateOrderSchema = z.object({
