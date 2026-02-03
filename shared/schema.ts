@@ -1,18 +1,159 @@
-import { sql } from "drizzle-orm";
-import { pgTable, text, varchar } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, decimal } from "drizzle-orm/pg-core";
+import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+export * from "./models/auth";
 
-export const users = pgTable("users", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  username: text("username").notNull().unique(),
-  password: text("password").notNull(),
+// === TABLE DEFINITIONS ===
+
+export const categories = pgTable("categories", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description"),
 });
 
-export const insertUserSchema = createInsertSchema(users).pick({
-  username: true,
-  password: true,
+export const products = pgTable("products", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  sku: text("sku").notNull().unique(),
+  description: text("description"),
+  price: integer("price").notNull(), // in cents
+  stockQuantity: integer("stock_quantity").notNull().default(0),
+  categoryId: integer("category_id").references(() => categories.id),
+  imageUrl: text("image_url"),
+  createdAt: timestamp("created_at").defaultNow(),
 });
 
-export type InsertUser = z.infer<typeof insertUserSchema>;
-export type User = typeof users.$inferSelect;
+export const customers = pgTable("customers", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  email: text("email"),
+  phone: text("phone"),
+  address: text("address"),
+  creditLimit: integer("credit_limit").notNull().default(0), // in cents
+  currentBalance: integer("current_balance").notNull().default(0), // in cents. Positive means they owe money.
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const orders = pgTable("orders", {
+  id: serial("id").primaryKey(),
+  customerId: integer("customer_id").notNull().references(() => customers.id),
+  status: text("status").notNull().default("pending"), // pending, completed, cancelled
+  totalAmount: integer("total_amount").notNull(), // in cents
+  orderDate: timestamp("order_date").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const orderItems = pgTable("order_items", {
+  id: serial("id").primaryKey(),
+  orderId: integer("order_id").notNull().references(() => orders.id),
+  productId: integer("product_id").notNull().references(() => products.id),
+  quantity: integer("quantity").notNull(),
+  unitPrice: integer("unit_price").notNull(), // snapshot of price at time of order
+});
+
+export const ledgerEntries = pgTable("ledger_entries", {
+  id: serial("id").primaryKey(),
+  customerId: integer("customer_id").notNull().references(() => customers.id),
+  type: text("type").notNull(), // debit (increase balance), credit (decrease balance/payment), purchase, adjustment
+  amount: integer("amount").notNull(), // in cents
+  description: text("description"),
+  entryDate: timestamp("entry_date").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// === RELATIONS ===
+
+export const productsRelations = relations(products, ({ one }) => ({
+  category: one(categories, {
+    fields: [products.categoryId],
+    references: [categories.id],
+  }),
+}));
+
+export const customersRelations = relations(customers, ({ many }) => ({
+  orders: many(orders),
+  ledgerEntries: many(ledgerEntries),
+}));
+
+export const ordersRelations = relations(orders, ({ one, many }) => ({
+  customer: one(customers, {
+    fields: [orders.customerId],
+    references: [customers.id],
+  }),
+  items: many(orderItems),
+}));
+
+export const orderItemsRelations = relations(orderItems, ({ one }) => ({
+  order: one(orders, {
+    fields: [orderItems.orderId],
+    references: [orders.id],
+  }),
+  product: one(products, {
+    fields: [orderItems.productId],
+    references: [products.id],
+  }),
+}));
+
+export const ledgerEntriesRelations = relations(ledgerEntries, ({ one }) => ({
+  customer: one(customers, {
+    fields: [ledgerEntries.customerId],
+    references: [customers.id],
+  }),
+}));
+
+// === BASE SCHEMAS ===
+
+export const insertCategorySchema = createInsertSchema(categories).omit({ id: true });
+export const insertProductSchema = createInsertSchema(products).omit({ id: true, createdAt: true });
+export const insertCustomerSchema = createInsertSchema(customers).omit({ id: true, createdAt: true, currentBalance: true }); // currentBalance should be updated via ledger
+export const insertOrderSchema = createInsertSchema(orders).omit({ id: true, createdAt: true, totalAmount: true }); // totalAmount calculated from items
+export const insertOrderItemSchema = createInsertSchema(orderItems).omit({ id: true });
+export const insertLedgerEntrySchema = createInsertSchema(ledgerEntries).omit({ id: true, createdAt: true });
+
+// === EXPLICIT API CONTRACT TYPES ===
+
+export type Category = typeof categories.$inferSelect;
+export type Product = typeof products.$inferSelect;
+export type Customer = typeof customers.$inferSelect;
+export type Order = typeof orders.$inferSelect;
+export type OrderItem = typeof orderItems.$inferSelect;
+export type LedgerEntry = typeof ledgerEntries.$inferSelect;
+
+export type InsertCategory = z.infer<typeof insertCategorySchema>;
+export type InsertProduct = z.infer<typeof insertProductSchema>;
+export type InsertCustomer = z.infer<typeof insertCustomerSchema>;
+export type InsertOrder = z.infer<typeof insertOrderSchema>;
+export type InsertOrderItem = z.infer<typeof insertOrderItemSchema>;
+export type InsertLedgerEntry = z.infer<typeof insertLedgerEntrySchema>;
+
+// Request types
+export type CreateProductRequest = InsertProduct;
+export type UpdateProductRequest = Partial<InsertProduct>;
+
+export type CreateCustomerRequest = InsertCustomer;
+export type UpdateCustomerRequest = Partial<InsertCustomer>;
+
+// Order creation is complex - it involves items
+export type CreateOrderRequest = {
+  customerId: number;
+  items: {
+    productId: number;
+    quantity: number;
+  }[];
+};
+export type UpdateOrderRequest = { status: string };
+
+export type CreateLedgerEntryRequest = InsertLedgerEntry;
+
+// Response types
+export type ProductResponse = Product & { category?: Category };
+export type CustomerResponse = Customer;
+export type OrderResponse = Order & { customer?: Customer; items?: (OrderItem & { product?: Product })[] };
+export type LedgerEntryResponse = LedgerEntry;
+
+// Query types
+export interface ProductsQueryParams {
+  search?: string;
+  categoryId?: number;
+}
