@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useOrders, useCreateOrder, useUpdateOrderStatus } from "@/hooks/use-orders";
-import { useCustomers } from "@/hooks/use-customers";
+import { useCustomers, useCreateCustomer } from "@/hooks/use-customers";
+import { Label } from "@/components/ui/label";
 import { useProducts } from "@/hooks/use-products";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -216,11 +217,46 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
   const [step, setStep] = useState(1);
   const [customerId, setCustomerId] = useState<string>("");
   const [cart, setCart] = useState<{ productId: number; quantity: number; product: any }[]>([]);
+  const [customerSearch, setCustomerSearch] = useState("");
+  const [showNewCustomerForm, setShowNewCustomerForm] = useState(false);
+  const [newCustomerName, setNewCustomerName] = useState("");
+  const [newCustomerPhone, setNewCustomerPhone] = useState("");
+  const [newCustomerEmail, setNewCustomerEmail] = useState("");
   
   const { data: customers } = useCustomers();
   const { data: products } = useProducts();
   const createOrder = useCreateOrder();
+  const createCustomer = useCreateCustomer();
   const { toast } = useToast();
+  
+  const filteredCustomers = customers?.filter(c => {
+    if (!customerSearch) return true;
+    const search = customerSearch.toLowerCase();
+    return c.name.toLowerCase().includes(search) || 
+           (c.phone && c.phone.toLowerCase().includes(search));
+  }) || [];
+
+  const handleCreateCustomer = async () => {
+    if (!newCustomerName.trim()) {
+      toast({ title: "Customer name is required", variant: "destructive" });
+      return;
+    }
+    try {
+      const newCustomer = await createCustomer.mutateAsync({
+        name: newCustomerName.trim(),
+        phone: newCustomerPhone.trim() || null,
+        email: newCustomerEmail.trim() || null,
+      });
+      setCustomerId(newCustomer.id.toString());
+      setShowNewCustomerForm(false);
+      setNewCustomerName("");
+      setNewCustomerPhone("");
+      setNewCustomerEmail("");
+      toast({ title: "Customer created successfully!" });
+    } catch (error: any) {
+      toast({ title: "Failed to create customer", description: error.message, variant: "destructive" });
+    }
+  };
 
   const addToCart = (product: any) => {
     const existing = cart.find(item => item.productId === product.id);
@@ -278,21 +314,99 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
         <div className="flex-1 overflow-auto p-6">
           {step === 1 && (
             <div className="space-y-4">
-              <h3 className="font-semibold text-lg">Select Customer</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {customers?.map(c => (
-                  <div 
-                    key={c.id} 
-                    className={cn(
-                      "p-4 rounded-xl border cursor-pointer transition-all hover:border-primary",
-                      customerId === c.id.toString() ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border"
-                    )}
-                    onClick={() => setCustomerId(c.id.toString())}
-                  >
-                    <div className="font-medium">{c.name}</div>
-                    <div className="text-sm text-muted-foreground">{c.email}</div>
+              <div className="flex items-center justify-between gap-4">
+                <h3 className="font-semibold text-lg">Select Customer</h3>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => setShowNewCustomerForm(!showNewCustomerForm)}
+                  data-testid="button-add-new-customer"
+                >
+                  <Plus className="w-4 h-4 mr-1" />
+                  {showNewCustomerForm ? "Cancel" : "New Customer"}
+                </Button>
+              </div>
+              
+              {showNewCustomerForm && (
+                <Card className="p-4 border-dashed border-2 border-primary/30 bg-primary/5">
+                  <div className="space-y-3">
+                    <h4 className="font-medium text-sm">Add New Customer</h4>
+                    <div className="grid gap-3">
+                      <div>
+                        <Label htmlFor="new-customer-name" className="text-xs">Name *</Label>
+                        <Input 
+                          id="new-customer-name"
+                          placeholder="Customer name" 
+                          value={newCustomerName}
+                          onChange={(e) => setNewCustomerName(e.target.value)}
+                          data-testid="input-new-customer-name"
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <Label htmlFor="new-customer-phone" className="text-xs">Phone</Label>
+                          <Input 
+                            id="new-customer-phone"
+                            placeholder="Phone number" 
+                            value={newCustomerPhone}
+                            onChange={(e) => setNewCustomerPhone(e.target.value)}
+                            data-testid="input-new-customer-phone"
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="new-customer-email" className="text-xs">Email</Label>
+                          <Input 
+                            id="new-customer-email"
+                            placeholder="Email address" 
+                            value={newCustomerEmail}
+                            onChange={(e) => setNewCustomerEmail(e.target.value)}
+                            data-testid="input-new-customer-email"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                    <Button 
+                      size="sm" 
+                      onClick={handleCreateCustomer}
+                      disabled={createCustomer.isPending}
+                      data-testid="button-save-new-customer"
+                    >
+                      {createCustomer.isPending ? "Creating..." : "Create & Select"}
+                    </Button>
                   </div>
-                ))}
+                </Card>
+              )}
+              
+              <Input 
+                placeholder="Search by name or phone..." 
+                value={customerSearch}
+                onChange={(e) => setCustomerSearch(e.target.value)}
+                className="max-w-sm"
+                data-testid="input-customer-search"
+              />
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[300px] overflow-y-auto">
+                {filteredCustomers.length === 0 ? (
+                  <div className="col-span-2 text-center py-8 text-muted-foreground">
+                    No customers found. Click "New Customer" to add one.
+                  </div>
+                ) : (
+                  filteredCustomers.map(c => (
+                    <div 
+                      key={c.id} 
+                      className={cn(
+                        "p-4 rounded-xl border cursor-pointer transition-all hover:border-primary",
+                        customerId === c.id.toString() ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border"
+                      )}
+                      onClick={() => setCustomerId(c.id.toString())}
+                      data-testid={`customer-card-${c.id}`}
+                    >
+                      <div className="font-medium">{c.name}</div>
+                      {c.phone && <div className="text-sm text-muted-foreground">{c.phone}</div>}
+                      {c.email && <div className="text-sm text-muted-foreground">{c.email}</div>}
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           )}
