@@ -43,6 +43,7 @@ Preferred communication style: Simple, everyday language.
 - **User Roles**: `owner` (full access), `admin` (can manage users/settings), `member` (read/write access)
 - **Registration**: New users can optionally create a business during registration
 - **User Management**: Owners/admins can add users by email; new users set their password via "Set Password" flow
+- **Security**: Cross-business user reassignment is prevented - users already belonging to another business cannot be added
 - **API Endpoints**:
   - `GET /api/business` - Get current user's business
   - `PUT /api/business` - Update business name (owner/admin only)
