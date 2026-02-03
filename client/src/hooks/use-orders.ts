@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, buildUrl } from "@shared/routes";
-import { type CreateOrderRequest, type UpdateOrderRequest } from "@shared/schema";
+import { type CreateOrderRequest, type UpdateOrderRequest, type EditOrderRequest } from "@shared/schema";
 
 export function useOrders(customerId?: number) {
   return useQuery({
@@ -68,5 +68,25 @@ export function useUpdateOrderStatus() {
       return api.orders.updateStatus.responses[200].parse(await res.json());
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: [api.orders.list.path] }),
+  });
+}
+
+export function useEditOrder() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, data }: { id: number; data: EditOrderRequest }) => {
+      const url = buildUrl(api.orders.edit.path, { id });
+      const res = await fetch(url, {
+        method: api.orders.edit.method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to edit order");
+      return await res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [api.orders.list.path] });
+    },
   });
 }

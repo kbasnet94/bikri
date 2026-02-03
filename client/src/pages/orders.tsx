@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { useOrders, useCreateOrder, useUpdateOrderStatus } from "@/hooks/use-orders";
+import React, { useState, useEffect } from "react";
+import { useOrders, useCreateOrder, useUpdateOrderStatus, useEditOrder } from "@/hooks/use-orders";
 import { useCustomers, useCreateCustomer } from "@/hooks/use-customers";
 import { Label } from "@/components/ui/label";
 import { useProducts } from "@/hooks/use-products";
@@ -30,7 +30,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, ShoppingCart, Trash2, CheckCircle, XCircle, Clock, Package, Truck, ChevronDown, ChevronRight, FileText } from "lucide-react";
+import { Plus, ShoppingCart, Trash2, CheckCircle, XCircle, Clock, Package, Truck, ChevronDown, ChevronRight, FileText, Pencil } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
@@ -78,6 +78,7 @@ export default function Orders() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<string>("new");
   const [expandedOrders, setExpandedOrders] = useState<Set<number>>(new Set());
+  const [editingOrder, setEditingOrder] = useState<any>(null);
   const { data: orders, isLoading } = useOrders();
   const updateStatus = useUpdateOrderStatus();
   const { toast } = useToast();
@@ -187,7 +188,7 @@ export default function Orders() {
                               </Badge>
                             </TableCell>
                             <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                              <OrderActions order={order} onStatusUpdate={handleStatusUpdate} />
+                              <OrderActions order={order} onStatusUpdate={handleStatusUpdate} onEdit={setEditingOrder} />
                             </TableCell>
                           </TableRow>
                           {isExpanded && (
@@ -209,11 +210,12 @@ export default function Orders() {
       </Tabs>
 
       <CreateOrderDialog open={isCreateOpen} onOpenChange={setIsCreateOpen} />
+      <EditOrderDialog order={editingOrder} open={!!editingOrder} onOpenChange={(open) => !open && setEditingOrder(null)} />
     </div>
   );
 }
 
-function OrderActions({ order, onStatusUpdate }: { order: any; onStatusUpdate: (id: number, status: string) => void }) {
+function OrderActions({ order, onStatusUpdate, onEdit }: { order: any; onStatusUpdate: (id: number, status: string) => void; onEdit: (order: any) => void }) {
   const normalizedStatus = normalizeStatus(order.status);
   const nextStatusMap: Record<string, string> = {
     'new': 'in-process',
@@ -223,9 +225,21 @@ function OrderActions({ order, onStatusUpdate }: { order: any; onStatusUpdate: (
 
   const nextStatus = nextStatusMap[normalizedStatus];
   const canCancel = normalizedStatus !== 'completed' && normalizedStatus !== 'cancelled';
+  const canEdit = normalizedStatus !== 'completed' && normalizedStatus !== 'cancelled';
 
   return (
     <div className="flex justify-end gap-2">
+      {canEdit && (
+        <Button 
+          size="icon" 
+          variant="ghost" 
+          className="h-8 w-8" 
+          onClick={(e) => { e.stopPropagation(); onEdit(order); }}
+          data-testid={`button-edit-order-${order.id}`}
+        >
+          <Pencil className="w-4 h-4" />
+        </Button>
+      )}
       {nextStatus && (
         <Select onValueChange={(value) => onStatusUpdate(order.id, value)}>
           <SelectTrigger className="w-[140px] h-8">
@@ -312,6 +326,149 @@ function OrderDetails({ order, formatCurrency }: { order: any; formatCurrency: (
         </div>
       </div>
     </div>
+  );
+}
+
+function EditOrderDialog({ order, open, onOpenChange }: { order: any; open: boolean; onOpenChange: (open: boolean) => void }) {
+  const { formatCurrency, symbol } = useCurrency();
+  const { toast } = useToast();
+  const editOrder = useEditOrder();
+  
+  const [note, setNote] = useState(order?.note || "");
+  const [items, setItems] = useState<{ id: number; productName: string; unitPrice: number; quantity: number; discountPercent: number }[]>([]);
+  
+  useEffect(() => {
+    if (order?.items) {
+      setItems(order.items.map((item: any) => ({
+        id: item.id,
+        productName: item.product?.name || `Product #${item.productId}`,
+        unitPrice: item.unitPrice,
+        quantity: item.quantity,
+        discountPercent: item.unitPrice > 0 ? Math.round((item.discount / item.unitPrice) * 100) : 0,
+      })));
+      setNote(order.note || "");
+    }
+  }, [order]);
+  
+  const updateItem = (itemId: number, field: 'quantity' | 'discountPercent', value: number) => {
+    setItems(prev => prev.map(item => 
+      item.id === itemId ? { ...item, [field]: value } : item
+    ));
+  };
+  
+  const calculateTotal = () => {
+    return items.reduce((total, item) => {
+      const discountAmount = Math.round(item.unitPrice * item.discountPercent / 100);
+      const effectivePrice = item.unitPrice - discountAmount;
+      return total + (effectivePrice * item.quantity);
+    }, 0);
+  };
+  
+  const handleSave = async () => {
+    try {
+      await editOrder.mutateAsync({
+        id: order.id,
+        data: {
+          note: note || undefined,
+          items: items.map(item => ({
+            id: item.id,
+            quantity: item.quantity,
+            discountPercent: item.discountPercent,
+          })),
+        },
+      });
+      toast({ title: "Order updated successfully" });
+      onOpenChange(false);
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    }
+  };
+  
+  if (!order) return null;
+  
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Edit Order #{order.id}</DialogTitle>
+        </DialogHeader>
+        
+        <div className="space-y-4">
+          <div className="text-sm font-medium">Order Items</div>
+          <div className="space-y-3">
+            {items.map((item) => {
+              const discountAmount = Math.round(item.unitPrice * item.discountPercent / 100);
+              const effectivePrice = item.unitPrice - discountAmount;
+              const lineTotal = effectivePrice * item.quantity;
+              
+              return (
+                <div key={item.id} className="p-3 bg-muted/30 rounded-lg border space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="font-medium">{item.productName}</div>
+                    <div className="text-sm text-muted-foreground">
+                      {formatCurrency(item.unitPrice)} each
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <Label className="text-xs">Quantity</Label>
+                      <Input 
+                        type="number" 
+                        min="1" 
+                        value={item.quantity}
+                        onChange={(e) => updateItem(item.id, 'quantity', Math.max(1, parseInt(e.target.value) || 1))}
+                        data-testid={`input-edit-qty-${item.id}`}
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Discount %</Label>
+                      <Input 
+                        type="number" 
+                        min="0" 
+                        max="100"
+                        value={item.discountPercent}
+                        onChange={(e) => updateItem(item.id, 'discountPercent', Math.min(100, Math.max(0, parseInt(e.target.value) || 0)))}
+                        data-testid={`input-edit-discount-${item.id}`}
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Line Total</Label>
+                      <div className="h-9 flex items-center font-mono font-medium">
+                        {formatCurrency(lineTotal)}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          
+          <div>
+            <Label>Order Note</Label>
+            <Textarea 
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="Add special instructions or notes..."
+              rows={3}
+              data-testid="input-edit-order-note"
+            />
+          </div>
+          
+          <div className="flex justify-between items-center pt-4 border-t">
+            <div className="text-lg font-bold">
+              New Total: <span className="font-mono">{formatCurrency(calculateTotal())}</span>
+            </div>
+          </div>
+        </div>
+        
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button onClick={handleSave} disabled={editOrder.isPending} data-testid="button-save-order-edit">
+            {editOrder.isPending ? "Saving..." : "Save Changes"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
