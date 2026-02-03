@@ -13,7 +13,7 @@ export interface IAuthStorage {
   verifyPassword(email: string, password: string): Promise<User | null>;
   // Business operations
   getBusiness(id: string): Promise<Business | undefined>;
-  updateBusiness(id: string, data: { name?: string }): Promise<Business | undefined>;
+  updateBusiness(id: string, data: { name?: string; currency?: string }): Promise<Business | undefined>;
   getBusinessUsers(businessId: string): Promise<User[]>;
   addUserToBusiness(businessId: string, email: string, firstName?: string, lastName?: string): Promise<User | { error: string }>;
   removeUserFromBusiness(userId: string): Promise<void>;
@@ -108,7 +108,7 @@ class AuthStorage implements IAuthStorage {
     return business;
   }
 
-  async updateBusiness(id: string, data: { name?: string }): Promise<Business | undefined> {
+  async updateBusiness(id: string, data: { name?: string; currency?: string }): Promise<Business | undefined> {
     const [business] = await db
       .update(businesses)
       .set({ ...data, updatedAt: new Date() })

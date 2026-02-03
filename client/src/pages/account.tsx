@@ -9,7 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { Building2, Users, UserPlus, Trash2, Shield, Loader2 } from "lucide-react";
+import { Building2, Users, UserPlus, Trash2, Shield, Loader2, Coins } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -51,9 +51,26 @@ export default function Account() {
   const { toast } = useToast();
   const [isAddUserOpen, setIsAddUserOpen] = useState(false);
   const [businessName, setBusinessName] = useState("");
+  const [currency, setCurrency] = useState("");
   const [newUserEmail, setNewUserEmail] = useState("");
   const [newUserFirstName, setNewUserFirstName] = useState("");
   const [newUserLastName, setNewUserLastName] = useState("");
+
+  // Common currencies for wholesale business
+  const currencies = [
+    { code: "USD", name: "US Dollar", symbol: "$" },
+    { code: "EUR", name: "Euro", symbol: "€" },
+    { code: "GBP", name: "British Pound", symbol: "£" },
+    { code: "INR", name: "Indian Rupee", symbol: "₹" },
+    { code: "AED", name: "UAE Dirham", symbol: "د.إ" },
+    { code: "SAR", name: "Saudi Riyal", symbol: "﷼" },
+    { code: "PKR", name: "Pakistani Rupee", symbol: "₨" },
+    { code: "BDT", name: "Bangladeshi Taka", symbol: "৳" },
+    { code: "CNY", name: "Chinese Yuan", symbol: "¥" },
+    { code: "JPY", name: "Japanese Yen", symbol: "¥" },
+    { code: "CAD", name: "Canadian Dollar", symbol: "$" },
+    { code: "AUD", name: "Australian Dollar", symbol: "$" },
+  ];
 
   const { data: businessUsers, isLoading: loadingUsers } = useQuery<BusinessUser[]>({
     queryKey: ["/api/business/users"],
@@ -61,12 +78,12 @@ export default function Account() {
   });
 
   const updateBusinessMutation = useMutation({
-    mutationFn: async (name: string) => {
-      const res = await apiRequest("PUT", "/api/business", { name });
+    mutationFn: async (data: { name?: string; currency?: string }) => {
+      const res = await apiRequest("PUT", "/api/business", data);
       return res.json();
     },
     onSuccess: () => {
-      toast({ title: "Business name updated" });
+      toast({ title: "Business updated" });
       queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
     },
     onError: (error: Error) => {
@@ -121,7 +138,12 @@ export default function Account() {
 
   const handleUpdateBusinessName = () => {
     if (!businessName.trim()) return;
-    updateBusinessMutation.mutate(businessName.trim());
+    updateBusinessMutation.mutate({ name: businessName.trim() });
+  };
+
+  const handleUpdateCurrency = (newCurrency: string) => {
+    setCurrency(newCurrency);
+    updateBusinessMutation.mutate({ currency: newCurrency });
   };
 
   const handleAddUser = () => {
@@ -217,6 +239,51 @@ export default function Account() {
           </CardContent>
         </Card>
 
+        <Card className="shadow-sm">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Coins className="h-5 w-5" />
+              Currency Settings
+            </CardTitle>
+            <CardDescription>Set your preferred currency for pricing and invoices</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="currency">Currency</Label>
+              <Select
+                value={currency || user?.business?.currency || "USD"}
+                onValueChange={handleUpdateCurrency}
+                disabled={!canManageUsers || updateBusinessMutation.isPending}
+              >
+                <SelectTrigger className="w-full" data-testid="select-currency">
+                  <SelectValue placeholder="Select currency" />
+                </SelectTrigger>
+                <SelectContent>
+                  {currencies.map((c) => (
+                    <SelectItem key={c.code} value={c.code}>
+                      <span className="flex items-center gap-2">
+                        <span className="font-medium">{c.code}</span>
+                        <span className="text-muted-foreground">- {c.name} ({c.symbol})</span>
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {!canManageUsers && (
+                <p className="text-xs text-muted-foreground">Only owners and admins can change currency</p>
+              )}
+            </div>
+            <div className="pt-4 border-t space-y-2">
+              <Label>Current Currency</Label>
+              <p className="text-lg font-semibold" data-testid="text-current-currency">
+                {currencies.find(c => c.code === (user?.business?.currency || "USD"))?.name || "US Dollar"} ({user?.business?.currency || "USD"})
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-6">
         <Card className="shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between gap-2">
             <div>

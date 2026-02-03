@@ -20,6 +20,7 @@ export const sessions = pgTable(
 export const businesses = pgTable("businesses", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: varchar("name").notNull(),
+  currency: varchar("currency").notNull().default("USD"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
