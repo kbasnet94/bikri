@@ -43,11 +43,16 @@ export const customers = pgTable("customers", {
 export const ORDER_STATUS_VALUES = ["new", "in-process", "ready", "completed", "cancelled"] as const;
 export type OrderStatusType = typeof ORDER_STATUS_VALUES[number];
 
+// Payment status values: COD (cash on delivery), Bank Transfer/QR, Credit
+export const PAYMENT_STATUS_VALUES = ["COD", "Bank Transfer/QR", "Credit"] as const;
+export type PaymentStatusType = typeof PAYMENT_STATUS_VALUES[number];
+
 export const orders = pgTable("orders", {
   id: serial("id").primaryKey(),
   businessId: varchar("business_id").notNull().references(() => businesses.id),
   customerId: integer("customer_id").notNull().references(() => customers.id),
   status: text("status").notNull().default("new"), // new, in-process, ready, completed, cancelled
+  paymentStatus: text("payment_status").notNull().default("Credit"), // COD, Bank Transfer/QR, Credit
   totalAmount: integer("total_amount").notNull(), // in cents
   note: text("note"), // optional order note
   orderDate: timestamp("order_date").defaultNow(),
@@ -155,11 +160,17 @@ export type CreateOrderRequest = {
     discountPercent?: number; // discount as percentage (0-100)
   }[];
   note?: string; // optional order note
+  paymentStatus: PaymentStatusType; // required payment status
 };
 export const updateOrderSchema = z.object({
   status: z.enum(ORDER_STATUS_VALUES)
 });
 export type UpdateOrderRequest = z.infer<typeof updateOrderSchema>;
+
+export const updatePaymentStatusSchema = z.object({
+  paymentStatus: z.enum(PAYMENT_STATUS_VALUES)
+});
+export type UpdatePaymentStatusRequest = z.infer<typeof updatePaymentStatusSchema>;
 
 export const editOrderSchema = z.object({
   note: z.string().optional(),
