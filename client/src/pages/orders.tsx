@@ -30,7 +30,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, ShoppingCart, Trash2, CheckCircle, XCircle, Clock, Package, Truck, ChevronDown, ChevronRight, FileText, Pencil } from "lucide-react";
+import { Plus, ShoppingCart, Trash2, CheckCircle, XCircle, Clock, Package, Truck, ChevronDown, ChevronRight, FileText, Pencil, Search, Filter, Calendar, DollarSign, ShoppingBag, CreditCard, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
@@ -79,6 +79,10 @@ export default function Orders() {
   const [activeTab, setActiveTab] = useState<string>("new");
   const [expandedOrders, setExpandedOrders] = useState<Set<number>>(new Set());
   const [editingOrder, setEditingOrder] = useState<any>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [paymentFilter, setPaymentFilter] = useState<string>("all");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const { data: orders, isLoading } = useOrders();
   const updateStatus = useUpdateOrderStatus();
   const { toast } = useToast();
@@ -105,10 +109,93 @@ export default function Orders() {
     }
   };
 
-  const filteredOrders = orders?.filter(order => normalizeStatus(order.status) === activeTab) || [];
+  const clearFilters = () => {
+    setSearchQuery("");
+    setPaymentFilter("all");
+    setDateFrom("");
+    setDateTo("");
+  };
+
+  const hasActiveFilters = searchQuery || paymentFilter !== "all" || dateFrom || dateTo;
+
+  // Apply all filters: tab status, search, payment filter, date range
+  const filteredOrders = (orders || []).filter(order => {
+    // Tab filter (status)
+    if (normalizeStatus(order.status) !== activeTab) return false;
+    
+    // Search filter (name or phone)
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      const customerName = order.customer?.name?.toLowerCase() || "";
+      const customerPhone = order.customer?.phone?.toLowerCase() || "";
+      if (!customerName.includes(query) && !customerPhone.includes(query)) return false;
+    }
+    
+    // Payment status filter
+    if (paymentFilter !== "all") {
+      const orderPayment = order.paymentStatus || "Credit";
+      if (orderPayment !== paymentFilter) return false;
+    }
+    
+    // Date range filter
+    if (dateFrom || dateTo) {
+      const orderDate = new Date(order.orderDate || order.createdAt!);
+      if (dateFrom) {
+        const fromDate = new Date(dateFrom);
+        fromDate.setHours(0, 0, 0, 0);
+        if (orderDate < fromDate) return false;
+      }
+      if (dateTo) {
+        const toDate = new Date(dateTo);
+        toDate.setHours(23, 59, 59, 999);
+        if (orderDate > toDate) return false;
+      }
+    }
+    
+    return true;
+  });
+
+  // KPI calculations based on filtered orders
+  const kpiData = {
+    totalOrders: filteredOrders.length,
+    totalAmount: filteredOrders.reduce((sum, o) => sum + (o.totalAmount || 0), 0),
+    codOrders: filteredOrders.filter(o => o.paymentStatus === "COD").length,
+    creditOrders: filteredOrders.filter(o => o.paymentStatus === "Credit" || !o.paymentStatus).length,
+  };
 
   const getOrderCount = (status: string) => {
-    return orders?.filter(o => normalizeStatus(o.status) === status).length || 0;
+    // Apply search, payment, and date filters but not tab filter
+    return (orders || []).filter(o => {
+      if (normalizeStatus(o.status) !== status) return false;
+      
+      if (searchQuery) {
+        const query = searchQuery.toLowerCase();
+        const customerName = o.customer?.name?.toLowerCase() || "";
+        const customerPhone = o.customer?.phone?.toLowerCase() || "";
+        if (!customerName.includes(query) && !customerPhone.includes(query)) return false;
+      }
+      
+      if (paymentFilter !== "all") {
+        const orderPayment = o.paymentStatus || "Credit";
+        if (orderPayment !== paymentFilter) return false;
+      }
+      
+      if (dateFrom || dateTo) {
+        const orderDate = new Date(o.orderDate || o.createdAt!);
+        if (dateFrom) {
+          const fromDate = new Date(dateFrom);
+          fromDate.setHours(0, 0, 0, 0);
+          if (orderDate < fromDate) return false;
+        }
+        if (dateTo) {
+          const toDate = new Date(dateTo);
+          toDate.setHours(23, 59, 59, 999);
+          if (orderDate > toDate) return false;
+        }
+      }
+      
+      return true;
+    }).length;
   };
 
   return (
@@ -122,6 +209,104 @@ export default function Orders() {
           <Plus className="w-4 h-4 mr-2" />
           New Order
         </Button>
+      </div>
+
+      {/* KPI Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Card className="p-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+              <ShoppingBag className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Total Orders</p>
+              <p className="text-xl font-bold" data-testid="kpi-total-orders">{kpiData.totalOrders}</p>
+            </div>
+          </div>
+        </Card>
+        <Card className="p-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-green-100 dark:bg-green-900/30 rounded-lg">
+              <DollarSign className="w-5 h-5 text-green-600 dark:text-green-400" />
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Total Amount</p>
+              <p className="text-xl font-bold" data-testid="kpi-total-amount">{formatCurrency(kpiData.totalAmount)}</p>
+            </div>
+          </div>
+        </Card>
+        <Card className="p-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-yellow-100 dark:bg-yellow-900/30 rounded-lg">
+              <Package className="w-5 h-5 text-yellow-600 dark:text-yellow-400" />
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">COD Orders</p>
+              <p className="text-xl font-bold" data-testid="kpi-cod-orders">{kpiData.codOrders}</p>
+            </div>
+          </div>
+        </Card>
+        <Card className="p-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-purple-100 dark:bg-purple-900/30 rounded-lg">
+              <CreditCard className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Credit Orders</p>
+              <p className="text-xl font-bold" data-testid="kpi-credit-orders">{kpiData.creditOrders}</p>
+            </div>
+          </div>
+        </Card>
+      </div>
+
+      {/* Search and Filters */}
+      <div className="flex flex-col sm:flex-row gap-3">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input
+            placeholder="Search by customer name or phone..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-9"
+            data-testid="input-search-orders"
+          />
+        </div>
+        <Select value={paymentFilter} onValueChange={setPaymentFilter}>
+          <SelectTrigger className="w-full sm:w-[180px]" data-testid="select-payment-filter">
+            <SelectValue placeholder="Payment Status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Payments</SelectItem>
+            <SelectItem value="COD">COD</SelectItem>
+            <SelectItem value="Bank Transfer/QR">Bank Transfer/QR</SelectItem>
+            <SelectItem value="Credit">Credit</SelectItem>
+          </SelectContent>
+        </Select>
+        <div className="flex gap-2 items-center">
+          <Input
+            type="date"
+            value={dateFrom}
+            onChange={(e) => setDateFrom(e.target.value)}
+            className="w-[140px]"
+            placeholder="From"
+            data-testid="input-date-from"
+          />
+          <span className="text-muted-foreground text-sm">to</span>
+          <Input
+            type="date"
+            value={dateTo}
+            onChange={(e) => setDateTo(e.target.value)}
+            className="w-[140px]"
+            placeholder="To"
+            data-testid="input-date-to"
+          />
+        </div>
+        {hasActiveFilters && (
+          <Button variant="ghost" size="sm" onClick={clearFilters} data-testid="button-clear-filters">
+            <X className="w-4 h-4 mr-1" />
+            Clear
+          </Button>
+        )}
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
