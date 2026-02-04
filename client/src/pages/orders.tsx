@@ -656,7 +656,7 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
   const [newCustomerEmail, setNewCustomerEmail] = useState("");
   const [newCustomerAddress, setNewCustomerAddress] = useState("");
   const [orderNote, setOrderNote] = useState("");
-  const [paymentStatus, setPaymentStatus] = useState<"COD" | "Bank Transfer/QR" | "Credit">("Credit");
+  const [paymentStatus, setPaymentStatus] = useState<"COD" | "Bank Transfer/QR" | "Credit" | "">("");
   const [orderDate, setOrderDate] = useState(() => format(new Date(), "yyyy-MM-dd"));
   
   const { data: customers } = useCustomers();
@@ -731,6 +731,10 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
 
   const handleSubmit = async () => {
     if (!customerId || cart.length === 0) return;
+    if (!paymentStatus) {
+      toast({ title: "Please select a payment status", variant: "destructive" });
+      return;
+    }
     
     try {
       await createOrder.mutateAsync({
@@ -741,7 +745,7 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
           discountPercent: item.discountPercent > 0 ? item.discountPercent : undefined
         })),
         note: orderNote.trim() || undefined,
-        paymentStatus: paymentStatus,
+        paymentStatus: paymentStatus as "COD" | "Bank Transfer/QR" | "Credit",
         orderDate: orderDate
       });
       toast({ title: "Order created successfully!" });
@@ -751,7 +755,7 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
       setCustomerId("");
       setCart([]);
       setOrderNote("");
-      setPaymentStatus("Credit");
+      setPaymentStatus("");
       setOrderDate(format(new Date(), "yyyy-MM-dd"));
     } catch (error: any) {
       toast({ title: "Failed to create order", description: error.message, variant: "destructive" });
@@ -1000,9 +1004,11 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
-                  {paymentStatus === "Credit" 
-                    ? "Customer will pay later. You can add payment in the ledger later."
-                    : "Payment will be recorded automatically in the customer's ledger."}
+                  {!paymentStatus 
+                    ? "Select how this order will be paid."
+                    : paymentStatus === "Credit" 
+                      ? "Customer will pay later. You can add payment in the ledger later."
+                      : "Payment will be recorded automatically in the customer's ledger."}
                 </p>
               </div>
 
