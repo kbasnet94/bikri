@@ -157,7 +157,7 @@ export const api = {
         customerId: z.string().optional(),
       }).optional(),
       responses: {
-        200: z.array(z.custom<typeof orders.$inferSelect & { customer: typeof customers.$inferSelect }>()),
+        200: z.array(z.custom<typeof orders.$inferSelect & { customer: typeof customers.$inferSelect, items: (typeof orderItems.$inferSelect & { product: typeof products.$inferSelect })[] }>()),
       },
     },
     get: {

@@ -30,7 +30,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, ShoppingCart, Trash2, CheckCircle, XCircle, Clock, Package, Truck, ChevronDown, ChevronRight, FileText, Pencil, Search, Filter, Calendar, DollarSign, ShoppingBag, CreditCard, X } from "lucide-react";
+import { Plus, ShoppingCart, Trash2, CheckCircle, XCircle, Clock, Package, Truck, ChevronDown, ChevronRight, FileText, Pencil, Search, DollarSign, ShoppingBag, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
@@ -158,9 +158,11 @@ export default function Orders() {
   // KPI calculations based on filtered orders
   const kpiData = {
     totalOrders: filteredOrders.length,
-    totalAmount: filteredOrders.reduce((sum, o) => sum + (o.totalAmount || 0), 0),
-    codOrders: filteredOrders.filter(o => o.paymentStatus === "COD").length,
-    creditOrders: filteredOrders.filter(o => o.paymentStatus === "Credit" || !o.paymentStatus).length,
+    totalRevenue: filteredOrders.reduce((sum, o) => sum + (o.totalAmount || 0), 0),
+    totalUnits: filteredOrders.reduce((sum, o) => {
+      const orderItems = o.items || [];
+      return sum + orderItems.reduce((itemSum: number, item: any) => itemSum + (item.quantity || 0), 0);
+    }, 0),
   };
 
   const getOrderCount = (status: string) => {
@@ -212,7 +214,7 @@ export default function Orders() {
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-3 gap-4">
         <Card className="p-4">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
@@ -230,30 +232,19 @@ export default function Orders() {
               <DollarSign className="w-5 h-5 text-green-600 dark:text-green-400" />
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">Total Amount</p>
-              <p className="text-xl font-bold" data-testid="kpi-total-amount">{formatCurrency(kpiData.totalAmount)}</p>
-            </div>
-          </div>
-        </Card>
-        <Card className="p-4">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-yellow-100 dark:bg-yellow-900/30 rounded-lg">
-              <Package className="w-5 h-5 text-yellow-600 dark:text-yellow-400" />
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">COD Orders</p>
-              <p className="text-xl font-bold" data-testid="kpi-cod-orders">{kpiData.codOrders}</p>
+              <p className="text-xs text-muted-foreground">Total Revenue</p>
+              <p className="text-xl font-bold" data-testid="kpi-total-revenue">{formatCurrency(kpiData.totalRevenue)}</p>
             </div>
           </div>
         </Card>
         <Card className="p-4">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-purple-100 dark:bg-purple-900/30 rounded-lg">
-              <CreditCard className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+              <Package className="w-5 h-5 text-purple-600 dark:text-purple-400" />
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">Credit Orders</p>
-              <p className="text-xl font-bold" data-testid="kpi-credit-orders">{kpiData.creditOrders}</p>
+              <p className="text-xs text-muted-foreground">Total Units</p>
+              <p className="text-xl font-bold" data-testid="kpi-total-units">{kpiData.totalUnits}</p>
             </div>
           </div>
         </Card>
