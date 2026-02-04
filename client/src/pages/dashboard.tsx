@@ -1,16 +1,23 @@
+import { useState } from "react";
 import { useOrders } from "@/hooks/use-orders";
 import { useProducts } from "@/hooks/use-products";
 import { useCustomers } from "@/hooks/use-customers";
 import { useCurrency } from "@/hooks/use-currency";
 import { StatsCard } from "@/components/stats-card";
-import { DollarSign, AlertTriangle, TrendingUp, Users, Calendar } from "lucide-react";
+import { DollarSign, AlertTriangle, TrendingUp, Users } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { format } from "date-fns";
 import { Skeleton } from "@/components/ui/skeleton";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import { cn } from "@/lib/utils";
 
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
 export default function Dashboard() {
+  const currentYear = new Date().getFullYear();
+  const [selectedYear, setSelectedYear] = useState(currentYear);
+  
   const { data: orders, isLoading: loadingOrders } = useOrders();
   const { data: products, isLoading: loadingProducts } = useProducts();
   const { data: customers, isLoading: loadingCustomers } = useCustomers();
@@ -25,18 +32,33 @@ export default function Dashboard() {
   const totalSales = completedOrders.reduce((sum, order) => sum + order.totalAmount, 0);
   const lowStockProducts = products?.filter(p => p.stockQuantity < 10) || [];
   const totalCreditBalance = customers?.reduce((sum, c) => sum + Math.max(0, c.currentBalance), 0) || 0;
+
+  // Get available years from orders
+  const availableYears = Array.from(new Set(
+    completedOrders
+      .filter(o => o.orderDate)
+      .map(o => new Date(o.orderDate!).getFullYear())
+  )).sort((a, b) => b - a);
   
-  // Calculate monthly revenue (current month)
-  const now = new Date();
-  const currentMonth = now.getMonth();
-  const currentYear = now.getFullYear();
-  const monthlyRevenue = completedOrders
-    .filter(o => {
-      if (!o.orderDate) return false;
-      const orderDate = new Date(o.orderDate);
-      return orderDate.getMonth() === currentMonth && orderDate.getFullYear() === currentYear;
-    })
-    .reduce((sum, order) => sum + order.totalAmount, 0);
+  // Include current year if not in list
+  if (!availableYears.includes(currentYear)) {
+    availableYears.unshift(currentYear);
+  }
+
+  // Monthly revenue chart data for selected year
+  const monthlyRevenueData = MONTH_NAMES.map((month, index) => {
+    const monthTotal = completedOrders
+      .filter(o => {
+        if (!o.orderDate) return false;
+        const orderDate = new Date(o.orderDate);
+        return orderDate.getMonth() === index && orderDate.getFullYear() === selectedYear;
+      })
+      .reduce((sum, order) => sum + order.totalAmount, 0);
+    return {
+      month,
+      revenue: monthTotal / 100
+    };
+  });
 
   // Chart Data: Last 7 days sales
   const last7Days = Array.from({ length: 7 }, (_, i) => {
@@ -62,18 +84,12 @@ export default function Dashboard() {
         <p className="text-muted-foreground text-lg">Overview of your business performance.</p>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <StatsCard
           title="Total Revenue"
           value={formatCurrencyShort(totalSales)}
           icon={DollarSign}
           description="Lifetime sales volume"
-        />
-        <StatsCard
-          title="Monthly Revenue"
-          value={formatCurrencyShort(monthlyRevenue)}
-          icon={Calendar}
-          description={format(now, 'MMMM yyyy')}
         />
         <StatsCard
           title="Low Stock Alerts"
@@ -95,6 +111,51 @@ export default function Dashboard() {
           description="Registered clients"
         />
       </div>
+
+      {/* Monthly Revenue Chart */}
+      <Card className="shadow-sm">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 gap-4 pb-2">
+          <CardTitle>Monthly Revenue</CardTitle>
+          <Select value={selectedYear.toString()} onValueChange={(val) => setSelectedYear(parseInt(val))}>
+            <SelectTrigger className="w-[120px]" data-testid="select-year">
+              <SelectValue placeholder="Select year" />
+            </SelectTrigger>
+            <SelectContent>
+              {availableYears.map(year => (
+                <SelectItem key={year} value={year.toString()}>{year}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </CardHeader>
+        <CardContent className="pl-2">
+          <div className="h-[280px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={monthlyRevenueData}>
+                <XAxis 
+                  dataKey="month" 
+                  stroke="#888888" 
+                  fontSize={12} 
+                  tickLine={false} 
+                  axisLine={false} 
+                />
+                <YAxis
+                  stroke="#888888"
+                  fontSize={12}
+                  tickLine={false}
+                  axisLine={false}
+                  tickFormatter={(value) => `${symbol}${value}`}
+                />
+                <Tooltip 
+                  cursor={{fill: 'transparent'}}
+                  contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
+                  formatter={(value: number) => [`${symbol}${value.toFixed(2)}`, 'Revenue']}
+                />
+                <Bar dataKey="revenue" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="grid gap-4 md:grid-cols-7">
         <Card className="col-span-4 shadow-sm">
