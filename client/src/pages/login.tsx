@@ -137,26 +137,90 @@ export default function Login() {
 
   return (
     <div className="min-h-screen w-full flex bg-background">
-      {/* Left Panel: Branding */}
-      <div className="hidden lg:flex w-1/2 bg-slate-950 relative flex-col justify-between p-12 text-white overflow-hidden">
-        <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:24px_24px]"></div>
-        <div className="absolute inset-0 bg-gradient-to-tr from-primary/20 via-transparent to-transparent" />
+      {/* Left Panel: Illustrated Branding */}
+      <div className="hidden lg:flex w-1/2 relative flex-col justify-between p-12 text-white overflow-hidden bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500">
+        {/* Animated floating boxes */}
+        <div className="absolute inset-0 overflow-hidden">
+          {/* Large box - back */}
+          <div className="absolute top-[15%] right-[10%] w-32 h-32 animate-float">
+            <div className="w-full h-full bg-white/10 backdrop-blur-sm rounded-2xl border border-white/20 shadow-2xl rotate-12 flex items-center justify-center">
+              <div className="w-16 h-16 bg-white/20 rounded-xl" />
+            </div>
+          </div>
+          
+          {/* Medium box with tape */}
+          <div className="absolute top-[35%] right-[25%] w-24 h-24 animate-float-delay-1">
+            <div className="w-full h-full bg-amber-200/80 rounded-lg shadow-xl -rotate-6 relative">
+              <div className="absolute top-1/2 left-0 right-0 h-3 bg-amber-100/60 -translate-y-1/2" />
+              <div className="absolute top-0 bottom-0 left-1/2 w-3 bg-amber-100/60 -translate-x-1/2" />
+            </div>
+          </div>
+          
+          {/* Small floating box */}
+          <div className="absolute bottom-[30%] right-[15%] w-16 h-16 animate-float-delay-2">
+            <div className="w-full h-full bg-white/15 backdrop-blur-sm rounded-xl border border-white/25 shadow-lg rotate-6" />
+          </div>
+          
+          {/* Stack of boxes - left side */}
+          <div className="absolute bottom-[20%] left-[8%] animate-float-delay-3">
+            <div className="relative">
+              <div className="w-20 h-16 bg-orange-300/70 rounded-lg shadow-lg" />
+              <div className="absolute -top-12 left-2 w-16 h-14 bg-teal-300/70 rounded-lg shadow-lg rotate-3" />
+              <div className="absolute -top-20 left-4 w-14 h-12 bg-blue-300/70 rounded-lg shadow-lg -rotate-2" />
+            </div>
+          </div>
+          
+          {/* Delivery truck silhouette */}
+          <div className="absolute bottom-[10%] right-[35%] opacity-20 animate-float-slow">
+            <svg width="120" height="60" viewBox="0 0 120 60" fill="currentColor">
+              <rect x="0" y="15" width="70" height="35" rx="4" />
+              <rect x="70" y="25" width="40" height="25" rx="4" />
+              <polygon points="70,25 90,10 110,10 110,25" />
+              <circle cx="20" cy="50" r="10" className="fill-white/30" />
+              <circle cx="95" cy="50" r="10" className="fill-white/30" />
+            </svg>
+          </div>
+          
+          {/* Floating circles for depth */}
+          <div className="absolute top-[60%] left-[20%] w-8 h-8 bg-white/10 rounded-full animate-float-delay-3" />
+          <div className="absolute top-[25%] left-[35%] w-6 h-6 bg-white/15 rounded-full animate-float-delay-1" />
+          <div className="absolute top-[70%] right-[40%] w-4 h-4 bg-white/20 rounded-full animate-float-fast" />
+        </div>
         
+        {/* Subtle overlay gradient */}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent" />
+        
+        {/* Logo */}
         <div className="relative z-10 flex items-center gap-3">
           <img src={logoDark} alt="Bikri" className="h-10 w-auto" />
         </div>
 
-        <div className="relative z-10 max-w-lg">
-          <h1 className="font-display font-bold text-5xl leading-tight mb-6">
+        {/* Main content */}
+        <div className="relative z-10 max-w-md">
+          <h1 className="font-display font-bold text-5xl leading-tight mb-6 drop-shadow-lg">
             Master your inventory, <br/>
-            <span className="text-primary-foreground/60">elevate your sales.</span>
+            <span className="text-white/80">elevate your sales.</span>
           </h1>
-          <p className="text-lg text-white/60 font-light leading-relaxed">
-            The complete solution for modern wholesale businesses. Track inventory, manage customer credit, and process orders with lightning speed.
+          <p className="text-lg text-white/70 font-light leading-relaxed drop-shadow">
+            The complete solution for modern wholesale businesses. Track inventory, manage customer credit, and process orders with ease.
           </p>
+          
+          {/* Feature pills */}
+          <div className="flex flex-wrap gap-2 mt-8">
+            <span className="px-3 py-1.5 bg-white/15 backdrop-blur-sm rounded-full text-sm font-medium border border-white/20">
+              Inventory Tracking
+            </span>
+            <span className="px-3 py-1.5 bg-white/15 backdrop-blur-sm rounded-full text-sm font-medium border border-white/20">
+              Credit Management
+            </span>
+            <span className="px-3 py-1.5 bg-white/15 backdrop-blur-sm rounded-full text-sm font-medium border border-white/20">
+              Order Processing
+            </span>
+          </div>
         </div>
 
-        <div className="relative z-10 text-sm text-white/40">
+        {/* Footer */}
+        <div className="relative z-10 text-sm text-white/50">
           © 2024 Bikri. All rights reserved.
         </div>
       </div>
