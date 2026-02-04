@@ -7,7 +7,9 @@ export function useInventoryMovements(productId: number) {
   return useQuery<InventoryMovementResponse[]>({
     queryKey: ['/api/products', productId, 'inventory-movements'],
     queryFn: async () => {
-      const res = await fetch(buildUrl(api.inventoryMovements.listByProduct.path, { productId }));
+      const res = await fetch(buildUrl(api.inventoryMovements.listByProduct.path, { productId }), {
+        credentials: 'include',
+      });
       if (!res.ok) throw new Error('Failed to fetch inventory movements');
       return res.json();
     },
@@ -19,7 +21,9 @@ export function useInventoryMovementsByDateRange(startDate: string, endDate: str
   return useQuery<InventoryMovementResponse[]>({
     queryKey: ['/api/inventory-movements', startDate, endDate],
     queryFn: async () => {
-      const res = await fetch(`${api.inventoryMovements.listByDateRange.path}?startDate=${startDate}&endDate=${endDate}`);
+      const res = await fetch(`${api.inventoryMovements.listByDateRange.path}?startDate=${startDate}&endDate=${endDate}`, {
+        credentials: 'include',
+      });
       if (!res.ok) throw new Error('Failed to fetch inventory movements');
       return res.json();
     },
@@ -31,7 +35,9 @@ export function useStockAtDate(productId: number, date: string, enabled = true) 
   return useQuery<{ productId: number; date: string; stockQuantity: number }>({
     queryKey: ['/api/products', productId, 'stock-at-date', date],
     queryFn: async () => {
-      const res = await fetch(`${buildUrl(api.inventoryMovements.getStockAtDate.path, { productId })}?date=${date}`);
+      const res = await fetch(`${buildUrl(api.inventoryMovements.getStockAtDate.path, { productId })}?date=${date}`, {
+        credentials: 'include',
+      });
       if (!res.ok) throw new Error('Failed to fetch stock at date');
       return res.json();
     },

@@ -223,6 +223,21 @@ export class DatabaseStorage implements IStorage {
           unitPrice: item.unitPrice,
           discount: item.discount
         });
+
+        // Record inventory movement for each item (sale)
+        const product = await tx.query.products.findFirst({
+          where: and(eq(products.id, item.productId), eq(products.businessId, businessId))
+        });
+        await tx.insert(inventoryMovements).values({
+          businessId,
+          productId: item.productId,
+          movementType: "sale",
+          quantityChange: -item.quantity,
+          balanceAfter: product?.stockQuantity ?? 0, // Current stock after deduction
+          orderId: newOrder.id,
+          notes: `Order #${newOrder.id}`,
+          movementDate: orderDate ? new Date(orderDate) : new Date()
+        });
       }
 
       // Always create a purchase ledger entry (increases customer balance)
@@ -307,6 +322,10 @@ export class DatabaseStorage implements IStorage {
         // Delete ledger entries for this order
         await tx.delete(ledgerEntries)
           .where(and(eq(ledgerEntries.orderId, id), eq(ledgerEntries.businessId, businessId)));
+
+        // Delete inventory movements for this order
+        await tx.delete(inventoryMovements)
+          .where(and(eq(inventoryMovements.orderId, id), eq(inventoryMovements.businessId, businessId)));
       }
       
       const [updatedOrder] = await tx.update(orders)

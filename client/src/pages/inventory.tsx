@@ -56,6 +56,8 @@ export default function Inventory() {
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<ProductResponse | null>(null);
+  const [recordStockProduct, setRecordStockProduct] = useState<ProductResponse | null>(null);
+  const [historyProduct, setHistoryProduct] = useState<ProductResponse | null>(null);
   const { formatCurrency } = useCurrency();
 
   const { data: products, isLoading } = useProducts({ 
@@ -161,11 +163,29 @@ export default function Inventory() {
                     </span>
                   </TableCell>
                   <TableCell className="text-right">
-                    <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <Button variant="ghost" size="icon" onClick={() => setEditingProduct(product)}>
+                    <div className="flex justify-end gap-1">
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        onClick={() => setRecordStockProduct(product)}
+                        title="Record Stock"
+                        data-testid={`button-record-stock-${product.id}`}
+                      >
+                        <Package className="w-4 h-4 text-muted-foreground hover:text-primary" />
+                      </Button>
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        onClick={() => setHistoryProduct(product)}
+                        title="View History"
+                        data-testid={`button-view-history-${product.id}`}
+                      >
+                        <History className="w-4 h-4 text-muted-foreground hover:text-primary" />
+                      </Button>
+                      <Button variant="ghost" size="icon" onClick={() => setEditingProduct(product)} data-testid={`button-edit-product-${product.id}`}>
                         <Pencil className="w-4 h-4 text-muted-foreground hover:text-primary" />
                       </Button>
-                      <Button variant="ghost" size="icon" onClick={() => handleDelete(product.id)}>
+                      <Button variant="ghost" size="icon" onClick={() => handleDelete(product.id)} data-testid={`button-delete-product-${product.id}`}>
                         <Trash2 className="w-4 h-4 text-muted-foreground hover:text-destructive" />
                       </Button>
                     </div>
@@ -191,6 +211,22 @@ export default function Inventory() {
           mode="edit" 
           defaultValues={editingProduct}
           categories={categories || []}
+        />
+      )}
+
+      {recordStockProduct && (
+        <RecordStockDialog
+          open={!!recordStockProduct}
+          onOpenChange={(open: boolean) => !open && setRecordStockProduct(null)}
+          product={recordStockProduct}
+        />
+      )}
+
+      {historyProduct && (
+        <InventoryHistoryDialog
+          open={!!historyProduct}
+          onOpenChange={(open: boolean) => !open && setHistoryProduct(null)}
+          product={historyProduct}
         />
       )}
     </div>
@@ -447,6 +483,318 @@ function ProductDialog({ open, onOpenChange, mode, defaultValues, categories }: 
             </Button>
           </form>
         </Form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// Schema for recording stock movements
+const recordStockSchema = z.object({
+  movementType: z.enum(INVENTORY_MOVEMENT_TYPES),
+  quantity: z.coerce.number().min(1, "Quantity must be at least 1"),
+  adjustmentDirection: z.enum(["increase", "decrease"]).default("increase"),
+  notes: z.string().optional(),
+  movementDate: z.string().optional(),
+});
+
+function RecordStockDialog({ open, onOpenChange, product }: { open: boolean; onOpenChange: (open: boolean) => void; product: ProductResponse }) {
+  const { toast } = useToast();
+  const createMovement = useCreateInventoryMovement();
+  
+  const form = useForm<z.infer<typeof recordStockSchema>>({
+    resolver: zodResolver(recordStockSchema),
+    defaultValues: {
+      movementType: "purchase",
+      quantity: 1,
+      adjustmentDirection: "increase",
+      notes: "",
+      movementDate: format(new Date(), "yyyy-MM-dd"),
+    },
+  });
+
+  const movementType = form.watch("movementType");
+
+  const onSubmit = async (values: z.infer<typeof recordStockSchema>) => {
+    try {
+      // Determine sign based on movement type
+      let quantityChange = values.quantity;
+      if (values.movementType === "sale") {
+        // Sales are always negative
+        quantityChange = -values.quantity;
+      } else if (values.movementType === "adjustment") {
+        // Adjustments can be increase or decrease based on direction selector
+        quantityChange = values.adjustmentDirection === "decrease" ? -values.quantity : values.quantity;
+      }
+      // Purchase and return are always positive (add stock)
+
+      await createMovement.mutateAsync({
+        productId: product.id,
+        movementType: values.movementType,
+        quantityChange,
+        notes: values.notes,
+        movementDate: values.movementDate,
+      });
+      
+      toast({ title: "Stock recorded successfully" });
+      onOpenChange(false);
+      form.reset();
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    }
+  };
+
+  const getMovementLabel = (type: InventoryMovementType) => {
+    switch (type) {
+      case "purchase": return "Stock Purchase (Add)";
+      case "sale": return "Manual Sale (Remove)";
+      case "adjustment": return "Adjustment";
+      case "return": return "Customer Return (Add)";
+    }
+  };
+
+  const getMovementIcon = (type: InventoryMovementType) => {
+    switch (type) {
+      case "purchase": return <ArrowUpCircle className="w-4 h-4 text-green-500" />;
+      case "sale": return <ArrowDownCircle className="w-4 h-4 text-red-500" />;
+      case "adjustment": return <RefreshCw className="w-4 h-4 text-blue-500" />;
+      case "return": return <ArrowUpCircle className="w-4 h-4 text-green-500" />;
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[450px]">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Package className="w-5 h-5" />
+            Record Stock for {product.name}
+          </DialogTitle>
+        </DialogHeader>
+        <div className="text-sm text-muted-foreground mb-4">
+          Current stock: <span className="font-semibold text-foreground">{product.stockQuantity}</span> units
+        </div>
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            <FormField
+              control={form.control}
+              name="movementType"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Movement Type</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value}>
+                    <FormControl>
+                      <SelectTrigger data-testid="select-movement-type">
+                        <SelectValue />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {INVENTORY_MOVEMENT_TYPES.map(type => (
+                        <SelectItem key={type} value={type}>
+                          <div className="flex items-center gap-2">
+                            {getMovementIcon(type)}
+                            {getMovementLabel(type)}
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            {movementType === "adjustment" && (
+              <FormField
+                control={form.control}
+                name="adjustmentDirection"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Adjustment Direction</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl>
+                        <SelectTrigger data-testid="select-adjustment-direction">
+                          <SelectValue />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="increase">
+                          <div className="flex items-center gap-2">
+                            <ArrowUpCircle className="w-4 h-4 text-green-500" />
+                            Increase Stock
+                          </div>
+                        </SelectItem>
+                        <SelectItem value="decrease">
+                          <div className="flex items-center gap-2">
+                            <ArrowDownCircle className="w-4 h-4 text-red-500" />
+                            Decrease Stock
+                          </div>
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
+            <div className="grid grid-cols-2 gap-4">
+              <FormField
+                control={form.control}
+                name="quantity"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Quantity</FormLabel>
+                    <FormControl>
+                      <Input 
+                        type="number" 
+                        min={1}
+                        {...field} 
+                        data-testid="input-movement-quantity" 
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="movementDate"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Date</FormLabel>
+                    <FormControl>
+                      <Input type="date" {...field} data-testid="input-movement-date" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+            <FormField
+              control={form.control}
+              name="notes"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Notes (optional)</FormLabel>
+                  <FormControl>
+                    <Textarea placeholder="e.g., Supplier invoice #12345" {...field} data-testid="input-movement-notes" />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <Button type="submit" className="w-full" disabled={createMovement.isPending} data-testid="button-save-movement">
+              {createMovement.isPending ? "Saving..." : "Record Stock Movement"}
+            </Button>
+          </form>
+        </Form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function InventoryHistoryDialog({ open, onOpenChange, product }: { open: boolean; onOpenChange: (open: boolean) => void; product: ProductResponse }) {
+  const [checkDate, setCheckDate] = useState(format(new Date(), "yyyy-MM-dd"));
+  const { data: movements, isLoading } = useInventoryMovements(product.id);
+  const { data: stockAtDate, isLoading: loadingStockAtDate } = useStockAtDate(product.id, checkDate, !!checkDate);
+
+  const getMovementIcon = (type: string, change: number) => {
+    if (change > 0) return <ArrowUpCircle className="w-4 h-4 text-green-500" />;
+    if (change < 0) return <ArrowDownCircle className="w-4 h-4 text-red-500" />;
+    return <RefreshCw className="w-4 h-4 text-muted-foreground" />;
+  };
+
+  const formatMovementType = (type: string) => {
+    switch (type) {
+      case "purchase": return "Purchase";
+      case "sale": return "Sale";
+      case "adjustment": return "Adjustment";
+      case "return": return "Return";
+      default: return type;
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[600px] max-h-[80vh] flex flex-col">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <History className="w-5 h-5" />
+            Inventory History: {product.name}
+          </DialogTitle>
+        </DialogHeader>
+        
+        <div className="bg-muted/50 rounded-lg p-4 mb-4">
+          <div className="flex items-center gap-4 flex-wrap">
+            <div>
+              <div className="text-xs text-muted-foreground">Current Stock</div>
+              <div className="text-2xl font-bold">{product.stockQuantity}</div>
+            </div>
+            <div className="flex-1 flex items-end gap-2">
+              <div className="flex-1">
+                <label className="text-xs text-muted-foreground">Stock on Date</label>
+                <Input 
+                  type="date" 
+                  value={checkDate}
+                  onChange={(e) => setCheckDate(e.target.value)}
+                  data-testid="input-check-date"
+                />
+              </div>
+              <div className="text-center">
+                <div className="text-xs text-muted-foreground">Was</div>
+                <div className="text-xl font-semibold">
+                  {loadingStockAtDate ? "..." : stockAtDate?.stockQuantity ?? 0}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Date</TableHead>
+                <TableHead>Type</TableHead>
+                <TableHead className="text-right">Change</TableHead>
+                <TableHead className="text-right">Balance</TableHead>
+                <TableHead>Notes</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {isLoading ? (
+                <TableRow>
+                  <TableCell colSpan={5} className="h-16 text-center">Loading...</TableCell>
+                </TableRow>
+              ) : movements?.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={5} className="h-16 text-center text-muted-foreground">
+                    No inventory movements recorded yet.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                movements?.map((m) => (
+                  <TableRow key={m.id}>
+                    <TableCell className="text-sm">
+                      {m.movementDate ? format(new Date(m.movementDate), "MMM dd, yyyy") : "-"}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        {getMovementIcon(m.movementType, m.quantityChange)}
+                        <span className="text-sm">{formatMovementType(m.movementType)}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell className={cn("text-right font-mono", m.quantityChange > 0 ? "text-green-600" : "text-red-600")}>
+                      {m.quantityChange > 0 ? "+" : ""}{m.quantityChange}
+                    </TableCell>
+                    <TableCell className="text-right font-mono">{m.balanceAfter}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground max-w-[150px] truncate">
+                      {m.notes || "-"}
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
       </DialogContent>
     </Dialog>
   );

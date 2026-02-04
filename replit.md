@@ -20,6 +20,21 @@ When an order is cancelled:
 - All ledger entries linked to that order are deleted
 - Customer balance is reversed (Credit orders decrease balance back to original)
 - Product inventory is restored (stock quantities are added back)
+- Inventory movement records linked to that order are deleted
+
+### Inventory Tracking
+The system tracks all inventory movements for each product:
+- **Movement Types**: Purchase (stock in), Sale (automatic from orders), Adjustment (manual correction), Return (customer return)
+- **Automatic Recording**: When an order is created, a "sale" movement is automatically recorded for each item
+- **Manual Recording**: Users can record purchase arrivals, returns, or adjustments via the "Record Stock" dialog in the Inventory page
+- **Historical View**: Users can see inventory movement history for each product and check what the stock level was on any past date
+- **Balance Tracking**: Each movement records the stock balance after the movement for historical accuracy
+
+**API Endpoints**:
+- `GET /api/products/:productId/inventory-movements` - Get all movements for a product
+- `GET /api/inventory-movements?startDate=X&endDate=Y` - Get movements in a date range
+- `POST /api/inventory-movements` - Create a new movement
+- `GET /api/products/:productId/stock-at-date?date=X` - Get stock quantity on a specific date
 
 ## User Preferences
 
