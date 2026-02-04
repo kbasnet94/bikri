@@ -138,7 +138,7 @@ export default function Login() {
   return (
     <div className="min-h-screen w-full flex bg-background">
       {/* Left Panel: Illustrated Branding */}
-      <div className="hidden lg:flex w-1/2 relative flex-col justify-between p-12 text-white overflow-hidden bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500">
+      <div className="hidden lg:flex w-1/2 relative flex-col justify-between p-12 text-white overflow-hidden bg-gradient-to-br from-emerald-600 via-green-500 to-teal-600">
         {/* Animated floating boxes */}
         <div className="absolute inset-0 overflow-hidden">
           {/* Large box - back */}
@@ -150,9 +150,9 @@ export default function Login() {
           
           {/* Medium box with tape */}
           <div className="absolute top-[35%] right-[25%] w-24 h-24 animate-float-delay-1">
-            <div className="w-full h-full bg-amber-200/80 rounded-lg shadow-xl -rotate-6 relative">
-              <div className="absolute top-1/2 left-0 right-0 h-3 bg-amber-100/60 -translate-y-1/2" />
-              <div className="absolute top-0 bottom-0 left-1/2 w-3 bg-amber-100/60 -translate-x-1/2" />
+            <div className="w-full h-full bg-lime-200/80 rounded-lg shadow-xl -rotate-6 relative">
+              <div className="absolute top-1/2 left-0 right-0 h-3 bg-lime-100/60 -translate-y-1/2" />
+              <div className="absolute top-0 bottom-0 left-1/2 w-3 bg-lime-100/60 -translate-x-1/2" />
             </div>
           </div>
           
@@ -164,9 +164,9 @@ export default function Login() {
           {/* Stack of boxes - left side */}
           <div className="absolute bottom-[20%] left-[8%] animate-float-delay-3">
             <div className="relative">
-              <div className="w-20 h-16 bg-orange-300/70 rounded-lg shadow-lg" />
+              <div className="w-20 h-16 bg-emerald-300/70 rounded-lg shadow-lg" />
               <div className="absolute -top-12 left-2 w-16 h-14 bg-teal-300/70 rounded-lg shadow-lg rotate-3" />
-              <div className="absolute -top-20 left-4 w-14 h-12 bg-blue-300/70 rounded-lg shadow-lg -rotate-2" />
+              <div className="absolute -top-20 left-4 w-14 h-12 bg-green-200/70 rounded-lg shadow-lg -rotate-2" />
             </div>
           </div>
           
