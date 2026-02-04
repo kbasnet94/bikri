@@ -7,13 +7,16 @@ import {
   updateOrderSchema,
   updatePaymentStatusSchema,
   editOrderSchema,
+  createInventoryMovementSchema,
   PAYMENT_STATUS_VALUES,
+  INVENTORY_MOVEMENT_TYPES,
   categories,
   products,
   customers,
   orders,
   orderItems,
-  ledgerEntries
+  ledgerEntries,
+  inventoryMovements
 } from './schema';
 
 // ============================================
@@ -231,6 +234,45 @@ export const api = {
       responses: {
         201: z.custom<typeof ledgerEntries.$inferSelect>(),
         400: errorSchemas.validation,
+      },
+    },
+  },
+  inventoryMovements: {
+    listByProduct: {
+      method: 'GET' as const,
+      path: '/api/products/:productId/inventory-movements',
+      responses: {
+        200: z.array(z.custom<typeof inventoryMovements.$inferSelect & { product: typeof products.$inferSelect }>()),
+      },
+    },
+    listByDateRange: {
+      method: 'GET' as const,
+      path: '/api/inventory-movements',
+      input: z.object({
+        startDate: z.string(),
+        endDate: z.string(),
+      }),
+      responses: {
+        200: z.array(z.custom<typeof inventoryMovements.$inferSelect & { product: typeof products.$inferSelect }>()),
+      },
+    },
+    create: {
+      method: 'POST' as const,
+      path: '/api/inventory-movements',
+      input: createInventoryMovementSchema,
+      responses: {
+        201: z.custom<typeof inventoryMovements.$inferSelect>(),
+        400: errorSchemas.validation,
+      },
+    },
+    getStockAtDate: {
+      method: 'GET' as const,
+      path: '/api/products/:productId/stock-at-date',
+      input: z.object({
+        date: z.string(),
+      }),
+      responses: {
+        200: z.object({ productId: z.number(), date: z.string(), stockQuantity: z.number() }),
       },
     },
   },

@@ -1,10 +1,11 @@
 import { db } from "./db";
-import { eq, desc, sql, sum, and } from "drizzle-orm";
+import { eq, desc, sql, sum, and, lte, gte } from "drizzle-orm";
 import {
-  categories, products, customers, orders, orderItems, ledgerEntries,
+  categories, products, customers, orders, orderItems, ledgerEntries, inventoryMovements,
   type InsertCategory, type InsertProduct, type InsertCustomer,
   type InsertLedgerEntry, type Product, type Category, type Customer, type Order, type LedgerEntry,
-  type ProductResponse, type OrderResponse
+  type ProductResponse, type OrderResponse, type InventoryMovement, type InventoryMovementResponse,
+  type CreateInventoryMovementRequest
 } from "@shared/schema";
 
 export interface IStorage {
@@ -38,6 +39,12 @@ export interface IStorage {
   // Ledger
   getLedgerEntries(businessId: string, customerId: number): Promise<LedgerEntry[]>;
   createLedgerEntry(businessId: string, entry: InsertLedgerEntry): Promise<LedgerEntry>;
+
+  // Inventory Movements
+  getInventoryMovements(businessId: string, productId: number): Promise<InventoryMovementResponse[]>;
+  getInventoryMovementsByDateRange(businessId: string, startDate: Date, endDate: Date): Promise<InventoryMovementResponse[]>;
+  createInventoryMovement(businessId: string, data: CreateInventoryMovementRequest): Promise<InventoryMovement>;
+  getInventoryAtDate(businessId: string, productId: number, date: Date): Promise<number>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -414,6 +421,74 @@ export class DatabaseStorage implements IStorage {
 
       return newEntry;
     });
+  }
+
+  // Inventory Movements
+  async getInventoryMovements(businessId: string, productId: number): Promise<InventoryMovementResponse[]> {
+    return await db.query.inventoryMovements.findMany({
+      where: and(eq(inventoryMovements.businessId, businessId), eq(inventoryMovements.productId, productId)),
+      with: { product: true },
+      orderBy: [desc(inventoryMovements.movementDate)],
+    });
+  }
+
+  async getInventoryMovementsByDateRange(businessId: string, startDate: Date, endDate: Date): Promise<InventoryMovementResponse[]> {
+    return await db.query.inventoryMovements.findMany({
+      where: and(
+        eq(inventoryMovements.businessId, businessId),
+        gte(inventoryMovements.movementDate, startDate),
+        lte(inventoryMovements.movementDate, endDate)
+      ),
+      with: { product: true },
+      orderBy: [desc(inventoryMovements.movementDate)],
+    });
+  }
+
+  async createInventoryMovement(businessId: string, data: CreateInventoryMovementRequest): Promise<InventoryMovement> {
+    return await db.transaction(async (tx) => {
+      // Get current product stock
+      const product = await tx.query.products.findFirst({
+        where: and(eq(products.id, data.productId), eq(products.businessId, businessId))
+      });
+      
+      if (!product) throw new Error(`Product ${data.productId} not found`);
+      
+      const newStock = product.stockQuantity + data.quantityChange;
+      if (newStock < 0) throw new Error(`Insufficient stock. Current: ${product.stockQuantity}, Change: ${data.quantityChange}`);
+      
+      // Update product stock
+      await tx.update(products)
+        .set({ stockQuantity: newStock })
+        .where(and(eq(products.id, data.productId), eq(products.businessId, businessId)));
+      
+      // Create movement record
+      const [movement] = await tx.insert(inventoryMovements).values({
+        businessId,
+        productId: data.productId,
+        movementType: data.movementType,
+        quantityChange: data.quantityChange,
+        balanceAfter: newStock,
+        notes: data.notes || null,
+        movementDate: data.movementDate ? new Date(data.movementDate) : new Date()
+      }).returning();
+      
+      return movement;
+    });
+  }
+
+  async getInventoryAtDate(businessId: string, productId: number, date: Date): Promise<number> {
+    // Find the most recent movement on or before the given date
+    const movement = await db.query.inventoryMovements.findFirst({
+      where: and(
+        eq(inventoryMovements.businessId, businessId),
+        eq(inventoryMovements.productId, productId),
+        lte(inventoryMovements.movementDate, date)
+      ),
+      orderBy: [desc(inventoryMovements.movementDate)],
+    });
+    
+    // If no movement found before date, return 0 (no recorded history)
+    return movement?.balanceAfter ?? 0;
   }
 }
 

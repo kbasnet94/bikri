@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { useProducts, useCreateProduct, useUpdateProduct, useDeleteProduct } from "@/hooks/use-products";
 import { useCategories, useCreateCategory, useDeleteCategory } from "@/hooks/use-categories";
+import { useInventoryMovements, useCreateInventoryMovement, useStockAtDate } from "@/hooks/use-inventory-movements";
 import { useCurrency } from "@/hooks/use-currency";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import {
   Table,
@@ -27,13 +29,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Search, Pencil, Trash2, Filter, X } from "lucide-react";
+import { Plus, Search, Pencil, Trash2, Filter, X, Package, History, ArrowUpCircle, ArrowDownCircle, RefreshCw, Calendar } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { insertProductSchema, type InsertProduct, type ProductResponse } from "@shared/schema";
+import { insertProductSchema, type InsertProduct, type ProductResponse, INVENTORY_MOVEMENT_TYPES, type InventoryMovementType } from "@shared/schema";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { z } from "zod";
+import { format } from "date-fns";
 
 // Create a schema that coerces strings to numbers for form inputs
 // Price is entered as decimal (e.g., 12.99) and converted to cents for storage

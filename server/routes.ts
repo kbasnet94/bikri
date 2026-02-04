@@ -260,5 +260,70 @@ export async function registerRoutes(
     }
   });
 
+  // Inventory Movements
+  app.get(api.inventoryMovements.listByProduct.path, isAuthenticated, requireBusiness, async (req: any, res) => {
+    const businessId = req.user.businessId;
+    const productId = Number(req.params.productId);
+    // Verify product belongs to this business
+    const product = await storage.getProduct(businessId, productId);
+    if (!product) return res.status(404).json({ message: "Product not found" });
+    const movements = await storage.getInventoryMovements(businessId, productId);
+    res.json(movements);
+  });
+
+  app.get(api.inventoryMovements.listByDateRange.path, isAuthenticated, requireBusiness, async (req: any, res) => {
+    try {
+      const businessId = req.user.businessId;
+      const startDate = new Date(req.query.startDate as string);
+      const endDate = new Date(req.query.endDate as string);
+      const movements = await storage.getInventoryMovementsByDateRange(businessId, startDate, endDate);
+      res.json(movements);
+    } catch (err) {
+      if (err instanceof Error) {
+        return res.status(400).json({ message: err.message });
+      }
+      throw err;
+    }
+  });
+
+  app.post(api.inventoryMovements.create.path, isAuthenticated, requireBusiness, async (req: any, res) => {
+    try {
+      const businessId = req.user.businessId;
+      const input = api.inventoryMovements.create.input.parse(req.body);
+      // Verify product belongs to this business
+      const product = await storage.getProduct(businessId, input.productId);
+      if (!product) return res.status(404).json({ message: "Product not found" });
+      const movement = await storage.createInventoryMovement(businessId, input);
+      res.status(201).json(movement);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message });
+      }
+      if (err instanceof Error) {
+        return res.status(400).json({ message: err.message });
+      }
+      throw err;
+    }
+  });
+
+  app.get(api.inventoryMovements.getStockAtDate.path, isAuthenticated, requireBusiness, async (req: any, res) => {
+    try {
+      const businessId = req.user.businessId;
+      const productId = Number(req.params.productId);
+      const dateStr = req.query.date as string;
+      // Verify product belongs to this business
+      const product = await storage.getProduct(businessId, productId);
+      if (!product) return res.status(404).json({ message: "Product not found" });
+      const date = new Date(dateStr);
+      const stockQuantity = await storage.getInventoryAtDate(businessId, productId, date);
+      res.json({ productId, date: dateStr, stockQuantity });
+    } catch (err) {
+      if (err instanceof Error) {
+        return res.status(400).json({ message: err.message });
+      }
+      throw err;
+    }
+  });
+
   return httpServer;
 }

@@ -80,12 +80,41 @@ export const ledgerEntries = pgTable("ledger_entries", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Inventory movement types: purchase (stock in), sale (stock out), adjustment (manual correction), return (returned stock)
+export const INVENTORY_MOVEMENT_TYPES = ["purchase", "sale", "adjustment", "return"] as const;
+export type InventoryMovementType = typeof INVENTORY_MOVEMENT_TYPES[number];
+
+export const inventoryMovements = pgTable("inventory_movements", {
+  id: serial("id").primaryKey(),
+  businessId: varchar("business_id").notNull().references(() => businesses.id),
+  productId: integer("product_id").notNull().references(() => products.id),
+  movementType: text("movement_type").notNull(), // purchase, sale, adjustment, return
+  quantityChange: integer("quantity_change").notNull(), // positive for stock in, negative for stock out
+  balanceAfter: integer("balance_after").notNull(), // stock balance after this movement
+  orderId: integer("order_id").references(() => orders.id), // optional - links to order for sale movements
+  notes: text("notes"),
+  movementDate: timestamp("movement_date").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // === RELATIONS ===
 
-export const productsRelations = relations(products, ({ one }) => ({
+export const productsRelations = relations(products, ({ one, many }) => ({
   category: one(categories, {
     fields: [products.categoryId],
     references: [categories.id],
+  }),
+  inventoryMovements: many(inventoryMovements),
+}));
+
+export const inventoryMovementsRelations = relations(inventoryMovements, ({ one }) => ({
+  product: one(products, {
+    fields: [inventoryMovements.productId],
+    references: [products.id],
+  }),
+  order: one(orders, {
+    fields: [inventoryMovements.orderId],
+    references: [orders.id],
   }),
 }));
 
@@ -132,6 +161,7 @@ export const insertCustomerSchema = createInsertSchema(customers).omit({ id: tru
 export const insertOrderSchema = createInsertSchema(orders).omit({ id: true, createdAt: true, totalAmount: true, businessId: true }); // totalAmount calculated from items
 export const insertOrderItemSchema = createInsertSchema(orderItems).omit({ id: true });
 export const insertLedgerEntrySchema = createInsertSchema(ledgerEntries).omit({ id: true, createdAt: true, businessId: true });
+export const insertInventoryMovementSchema = createInsertSchema(inventoryMovements).omit({ id: true, createdAt: true, businessId: true, balanceAfter: true });
 
 // === EXPLICIT API CONTRACT TYPES ===
 
@@ -141,6 +171,7 @@ export type Customer = typeof customers.$inferSelect;
 export type Order = typeof orders.$inferSelect;
 export type OrderItem = typeof orderItems.$inferSelect;
 export type LedgerEntry = typeof ledgerEntries.$inferSelect;
+export type InventoryMovement = typeof inventoryMovements.$inferSelect;
 
 export type InsertCategory = z.infer<typeof insertCategorySchema>;
 export type InsertProduct = z.infer<typeof insertProductSchema>;
@@ -148,6 +179,7 @@ export type InsertCustomer = z.infer<typeof insertCustomerSchema>;
 export type InsertOrder = z.infer<typeof insertOrderSchema>;
 export type InsertOrderItem = z.infer<typeof insertOrderItemSchema>;
 export type InsertLedgerEntry = z.infer<typeof insertLedgerEntrySchema>;
+export type InsertInventoryMovement = z.infer<typeof insertInventoryMovementSchema>;
 
 // Request types
 export type CreateProductRequest = InsertProduct;
@@ -191,6 +223,16 @@ export type EditOrderRequest = z.infer<typeof editOrderSchema>;
 
 export type CreateLedgerEntryRequest = InsertLedgerEntry;
 
+// Inventory movement request types
+export const createInventoryMovementSchema = z.object({
+  productId: z.number(),
+  movementType: z.enum(INVENTORY_MOVEMENT_TYPES),
+  quantityChange: z.number(),
+  notes: z.string().optional(),
+  movementDate: z.string().optional(), // ISO date string
+});
+export type CreateInventoryMovementRequest = z.infer<typeof createInventoryMovementSchema>;
+
 // Response types
 export type ProductResponse = Product & { category?: Category | null };
 export type CustomerResponse = Customer;
@@ -199,6 +241,7 @@ export type OrderResponse = Order & {
   items?: (OrderItem & { product?: Product })[] 
 };
 export type LedgerEntryResponse = LedgerEntry;
+export type InventoryMovementResponse = InventoryMovement & { product?: Product };
 
 // Query types
 export interface ProductsQueryParams {
