@@ -831,6 +831,7 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
   const [newCustomerPhone, setNewCustomerPhone] = useState("");
   const [newCustomerEmail, setNewCustomerEmail] = useState("");
   const [newCustomerAddress, setNewCustomerAddress] = useState("");
+  const [newCustomerPanVat, setNewCustomerPanVat] = useState("");
   const [orderNote, setOrderNote] = useState("");
   const [paymentStatus, setPaymentStatus] = useState<"COD" | "Bank Transfer/QR" | "Credit" | "">("");
   const [orderDate, setOrderDate] = useState(() => format(new Date(), "yyyy-MM-dd"));
@@ -878,6 +879,7 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
         phone: newCustomerPhone.trim() || null,
         email: newCustomerEmail.trim() || null,
         address: newCustomerAddress.trim() || null,
+        panVatNumber: newCustomerPanVat.trim() || null,
       });
       setCustomerId(newCustomer.id.toString());
       setShowNewCustomerForm(false);
@@ -885,6 +887,7 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
       setNewCustomerPhone("");
       setNewCustomerEmail("");
       setNewCustomerAddress("");
+      setNewCustomerPanVat("");
       toast({ title: "Customer created successfully!" });
     } catch (error: any) {
       toast({ title: "Failed to create customer", description: error.message, variant: "destructive" });
@@ -1038,6 +1041,17 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
                           value={newCustomerAddress}
                           onChange={(e) => setNewCustomerAddress(e.target.value)}
                           data-testid="input-new-customer-address"
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="new-customer-pan-vat" className="text-xs">PAN/VAT Number</Label>
+                        <Input 
+                          id="new-customer-pan-vat"
+                          placeholder="Enter PAN/VAT number" 
+                          inputMode="numeric"
+                          value={newCustomerPanVat}
+                          onChange={(e) => setNewCustomerPanVat(e.target.value.replace(/[^0-9]/g, ''))}
+                          data-testid="input-new-customer-pan-vat"
                         />
                       </div>
                     </div>

@@ -19,7 +19,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Search, Eye, Wallet, Calendar, DollarSign } from "lucide-react";
+import { Plus, Search, Eye, Wallet, Calendar, DollarSign, FileText } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -95,6 +95,9 @@ export default function Customers() {
                     <div className="flex flex-col text-sm">
                       <span>{customer.email}</span>
                       <span className="text-muted-foreground">{customer.phone}</span>
+                      {customer.panVatNumber && (
+                        <span className="text-xs text-muted-foreground" data-testid={`text-pan-vat-${customer.id}`}>PAN/VAT: {customer.panVatNumber}</span>
+                      )}
                     </div>
                   </TableCell>
                   <TableCell className="text-right font-mono">{formatCurrencyShort(customer.creditLimit)}</TableCell>
@@ -146,6 +149,7 @@ function CreateCustomerDialog({ open, onOpenChange }: any) {
       email: "",
       phone: "",
       address: "",
+      panVatNumber: "",
       creditLimit: 0,
     },
   });
@@ -212,6 +216,29 @@ function CreateCustomerDialog({ open, onOpenChange }: any) {
                 <FormItem>
                   <FormLabel>Address</FormLabel>
                   <FormControl><Input placeholder="123 Main St..." {...field} value={field.value || ''} /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="panVatNumber"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>PAN/VAT Number</FormLabel>
+                  <FormControl>
+                    <Input 
+                      placeholder="Enter PAN/VAT number" 
+                      inputMode="numeric"
+                      {...field} 
+                      value={field.value || ''} 
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/[^0-9]/g, '');
+                        field.onChange(val);
+                      }}
+                      data-testid="input-pan-vat-number"
+                    />
+                  </FormControl>
                   <FormMessage />
                 </FormItem>
               )}
@@ -401,6 +428,7 @@ function CustomerDetailsDialog({ customer, open, onOpenChange }: any) {
                 <div className="space-y-2">
                   <div className="flex items-center gap-2"><DollarSign className="w-4 h-4 text-muted-foreground" /> {customer.email || 'N/A'}</div>
                   <div className="flex items-center gap-2"><Calendar className="w-4 h-4 text-muted-foreground" /> {customer.phone || 'N/A'}</div>
+                  <div className="flex items-center gap-2"><FileText className="w-4 h-4 text-muted-foreground" /> PAN/VAT: {customer.panVatNumber || 'N/A'}</div>
                 </div>
               </div>
               <div>
