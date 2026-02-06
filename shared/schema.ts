@@ -34,6 +34,7 @@ export const customers = pgTable("customers", {
   email: text("email"),
   phone: text("phone"),
   address: text("address"),
+  panVatNumber: text("pan_vat_number"),
   creditLimit: integer("credit_limit").notNull().default(0), // in cents
   currentBalance: integer("current_balance").notNull().default(0), // in cents. Positive means they owe money.
   createdAt: timestamp("created_at").defaultNow(),
