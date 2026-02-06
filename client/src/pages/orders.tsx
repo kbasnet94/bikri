@@ -501,8 +501,96 @@ function OrderActions({ order, onStatusUpdate, onEdit }: { order: any; onStatusU
   );
 }
 
+function VatCalculationsDialog({ order, formatCurrency, open, onOpenChange }: { order: any; formatCurrency: (cents: number) => string; open: boolean; onOpenChange: (open: boolean) => void }) {
+  const items = order.items || [];
+
+  const vatRows = items.map((item: any) => {
+    const effectivePrice = item.unitPrice - (item.discount || 0);
+    const rateCents = effectivePrice / 1.13;
+    const amountCents = rateCents * item.quantity;
+    return {
+      name: item.product?.name || `Product #${item.productId}`,
+      quantity: item.quantity,
+      rate: Math.round(rateCents),
+      amount: Math.round(amountCents),
+    };
+  });
+
+  const total = vatRows.reduce((sum: number, r: any) => sum + r.amount, 0);
+  const taxableAmount = total;
+  const grandTotal = Math.round(total * 1.13);
+  const vatAmount = grandTotal - total;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Receipt className="w-5 h-5" />
+            VAT Calculations
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm p-3 bg-muted/30 rounded-lg">
+            <div className="text-muted-foreground">Customer Name</div>
+            <div className="font-medium" data-testid="vat-customer-name">{order.customer?.name || '-'}</div>
+            <div className="text-muted-foreground">Address</div>
+            <div data-testid="vat-customer-address">{order.customer?.address || '-'}</div>
+            <div className="text-muted-foreground">Phone</div>
+            <div data-testid="vat-customer-phone">{order.customer?.phone || '-'}</div>
+            <div className="text-muted-foreground">PAN/VAT Number</div>
+            <div data-testid="vat-customer-pan">{order.customer?.panVatNumber || '-'}</div>
+          </div>
+
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-muted/30">
+                <TableHead>Product Name</TableHead>
+                <TableHead className="text-right">Quantity</TableHead>
+                <TableHead className="text-right">Rate</TableHead>
+                <TableHead className="text-right">Amount</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {vatRows.map((row: any, i: number) => (
+                <TableRow key={i} data-testid={`vat-row-${i}`}>
+                  <TableCell>{row.name}</TableCell>
+                  <TableCell className="text-right font-mono">{row.quantity}</TableCell>
+                  <TableCell className="text-right font-mono">{formatCurrency(row.rate)}</TableCell>
+                  <TableCell className="text-right font-mono">{formatCurrency(row.amount)}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+
+          <div className="border-t pt-3 space-y-2 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Total</span>
+              <span className="font-mono font-medium" data-testid="vat-total">{formatCurrency(total)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Taxable Amount</span>
+              <span className="font-mono font-medium" data-testid="vat-taxable">{formatCurrency(taxableAmount)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">VAT at 13%</span>
+              <span className="font-mono font-medium" data-testid="vat-amount">{formatCurrency(vatAmount)}</span>
+            </div>
+            <div className="flex justify-between border-t pt-2">
+              <span className="font-semibold">Grand Total</span>
+              <span className="font-mono font-bold text-base" data-testid="vat-grand-total">{formatCurrency(grandTotal)}</span>
+            </div>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function OrderDetails({ order, formatCurrency }: { order: any; formatCurrency: (cents: number) => string }) {
   const items = order.items || [];
+  const [showVatCalc, setShowVatCalc] = useState(false);
   
   return (
     <div className="space-y-4">
@@ -553,12 +641,27 @@ function OrderDetails({ order, formatCurrency }: { order: any; formatCurrency: (
         </div>
       )}
       
-      <div className="flex justify-end pt-2 border-t">
+      <div className="flex justify-between items-end pt-2 border-t">
+        <button
+          type="button"
+          className="text-sm text-primary underline underline-offset-2 cursor-pointer"
+          onClick={(e) => { e.stopPropagation(); setShowVatCalc(true); }}
+          data-testid={`link-vat-calculations-${order.id}`}
+        >
+          Show VAT Calculations
+        </button>
         <div className="text-right">
           <div className="text-sm text-muted-foreground">Total</div>
           <div className="text-lg font-bold font-mono">{formatCurrency(order.totalAmount)}</div>
         </div>
       </div>
+
+      <VatCalculationsDialog 
+        order={order} 
+        formatCurrency={formatCurrency} 
+        open={showVatCalc} 
+        onOpenChange={setShowVatCalc} 
+      />
     </div>
   );
 }
