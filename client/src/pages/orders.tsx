@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import React, { useState, useEffect, useRef } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useOrders, useCreateOrder, useUpdateOrderStatus, useEditOrder, useUpdatePaymentStatus } from "@/hooks/use-orders";
 import { useCustomers, useCreateCustomer } from "@/hooks/use-customers";
 import { Label } from "@/components/ui/label";
@@ -8,6 +8,8 @@ import { useCurrency } from "@/hooks/use-currency";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import Papa from "papaparse";
+import { api } from "@shared/routes";
 import {
   Table,
   TableBody,
@@ -31,7 +33,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, ShoppingCart, Trash2, CheckCircle, XCircle, Clock, Package, Truck, ChevronDown, ChevronRight, FileText, Pencil, Search, DollarSign, ShoppingBag, X, Receipt } from "lucide-react";
+import { Plus, ShoppingCart, Trash2, CheckCircle, XCircle, Clock, Package, Truck, ChevronDown, ChevronRight, FileText, Pencil, Search, DollarSign, ShoppingBag, X, Receipt, Upload, AlertCircle } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
@@ -78,6 +80,7 @@ function getStatusLabel(status: string) {
 
 export default function Orders() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [isBulkOrderOpen, setIsBulkOrderOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<string>("new");
   const [expandedOrders, setExpandedOrders] = useState<Set<number>>(new Set());
   const [editingOrder, setEditingOrder] = useState<any>(null);
@@ -209,10 +212,16 @@ export default function Orders() {
           <h1 className="text-3xl font-display font-bold">Orders</h1>
           <p className="text-muted-foreground">Track and fulfill customer orders.</p>
         </div>
-        <Button onClick={() => setIsCreateOpen(true)} className="shadow-lg shadow-primary/25" data-testid="button-new-order">
-          <Plus className="w-4 h-4 mr-2" />
-          New Order
-        </Button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button variant="outline" onClick={() => setIsBulkOrderOpen(true)} data-testid="button-bulk-orders">
+            <Upload className="w-4 h-4 mr-2" />
+            Upload Orders
+          </Button>
+          <Button onClick={() => setIsCreateOpen(true)} className="shadow-lg shadow-primary/25" data-testid="button-new-order">
+            <Plus className="w-4 h-4 mr-2" />
+            New Order
+          </Button>
+        </div>
       </div>
 
       {/* KPI Cards */}
@@ -390,6 +399,7 @@ export default function Orders() {
       </Tabs>
 
       <CreateOrderDialog open={isCreateOpen} onOpenChange={setIsCreateOpen} />
+      <BulkOrderUploadDialog open={isBulkOrderOpen} onOpenChange={setIsBulkOrderOpen} />
       <EditOrderDialog order={editingOrder} open={!!editingOrder} onOpenChange={(open) => !open && setEditingOrder(null)} />
     </div>
   );
@@ -1408,6 +1418,229 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
               {createOrder.isPending ? "Creating..." : hasStockIssue ? "Fix Stock Issues" : "Confirm Order"}
             </Button>
           )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function BulkOrderUploadDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const orderFileRef = useRef<HTMLInputElement>(null);
+  const itemFileRef = useRef<HTMLInputElement>(null);
+  const [orderRows, setOrderRows] = useState<any[]>([]);
+  const [itemRows, setItemRows] = useState<any[]>([]);
+  const [orderFileName, setOrderFileName] = useState("");
+  const [itemFileName, setItemFileName] = useState("");
+  const [isUploading, setIsUploading] = useState(false);
+  const { data: customers } = useCustomers();
+  const { symbol } = useCurrency();
+
+  const orderHeaders = ['orderRef', 'customerRefID', 'status', 'paymentStatus', 'note', 'vatBillNumber', 'orderDate'];
+  const itemHeaders = ['orderRef', 'productSKU', 'quantity', 'unitPrice', 'discountPercent'];
+
+  const handleOrderFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setOrderFileName(file.name);
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (results) => setOrderRows(results.data as any[]),
+      error: () => toast({ title: "Failed to parse orders CSV", variant: "destructive" }),
+    });
+  };
+
+  const handleItemFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setItemFileName(file.name);
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (results) => setItemRows(results.data as any[]),
+      error: () => toast({ title: "Failed to parse order items CSV", variant: "destructive" }),
+    });
+  };
+
+  const handleUpload = async () => {
+    if (orderRows.length === 0 || itemRows.length === 0) return;
+    setIsUploading(true);
+    try {
+      const res = await fetch('/api/bulk/orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orders: orderRows, items: itemRows }),
+        credentials: 'include',
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        const errorCount = data.errors?.length || 0;
+        const firstErrors = (data.errors || []).slice(0, 5).map((e: any) => 
+          `${e.file ? `[${e.file}] ` : ''}${e.row > 0 ? `Row ${e.row}: ` : ''}${e.message}`
+        ).join('\n');
+        toast({ title: `${errorCount} error(s) found`, description: firstErrors, variant: "destructive" });
+        return;
+      }
+      toast({ title: `${data.created} order(s) created successfully. Inventory and ledger updated.` });
+      queryClient.invalidateQueries({ queryKey: [api.orders.list.path] });
+      queryClient.invalidateQueries({ queryKey: [api.products.list.path] });
+      queryClient.invalidateQueries({ queryKey: [api.customers.list.path] });
+      resetAndClose();
+    } catch (err: any) {
+      toast({ title: "Upload failed", description: err.message, variant: "destructive" });
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const resetAndClose = () => {
+    setOrderRows([]);
+    setItemRows([]);
+    setOrderFileName("");
+    setItemFileName("");
+    if (orderFileRef.current) orderFileRef.current.value = "";
+    if (itemFileRef.current) itemFileRef.current.value = "";
+    onOpenChange(false);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!v) resetAndClose(); else onOpenChange(v); }}>
+      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Bulk Upload Orders</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-3">
+              <div className="bg-muted/50 rounded-lg p-3 text-sm space-y-1">
+                <p className="font-medium">Orders CSV Headers:</p>
+                <code className="text-xs bg-muted px-2 py-1 rounded block" data-testid="text-orders-csv-headers">
+                  {orderHeaders.join(', ')}
+                </code>
+                <p className="text-muted-foreground text-xs mt-1">
+                  <strong>orderRef</strong> is a temporary ID to link items (e.g. "ORD-1").
+                  <strong> customerRefID</strong> = customer's database ID.
+                  <strong> status</strong>: new, in-process, ready, completed.
+                  <strong> paymentStatus</strong>: COD, Bank Transfer/QR, Credit.
+                  <strong> orderDate</strong>: YYYY-MM-DD.
+                  <strong> vatBillNumber</strong>: numeric only.
+                </p>
+              </div>
+              <Input
+                ref={orderFileRef}
+                type="file"
+                accept=".csv"
+                onChange={handleOrderFile}
+                data-testid="input-csv-orders"
+              />
+              {orderRows.length > 0 && (
+                <div className="space-y-1">
+                  <p className="text-xs font-medium">{orderFileName} - {orderRows.length} order(s)</p>
+                  <div className="border rounded-lg overflow-auto max-h-36">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          {orderHeaders.map(h => <TableHead key={h} className="text-xs whitespace-nowrap py-1 px-2">{h}</TableHead>)}
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {orderRows.slice(0, 5).map((row, i) => (
+                          <TableRow key={i} data-testid={`orders-preview-row-${i}`}>
+                            {orderHeaders.map(h => (
+                              <TableCell key={h} className="text-xs py-1 px-2">{row[h] || '-'}</TableCell>
+                            ))}
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                  {orderRows.length > 5 && <p className="text-xs text-muted-foreground">...and {orderRows.length - 5} more</p>}
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-3">
+              <div className="bg-muted/50 rounded-lg p-3 text-sm space-y-1">
+                <p className="font-medium">Order Items CSV Headers:</p>
+                <code className="text-xs bg-muted px-2 py-1 rounded block" data-testid="text-items-csv-headers">
+                  {itemHeaders.join(', ')}
+                </code>
+                <p className="text-muted-foreground text-xs mt-1">
+                  <strong>orderRef</strong> must match an orderRef from the Orders CSV.
+                  <strong> productSKU</strong> = product's SKU code.
+                  <strong> unitPrice</strong> in currency units (e.g. 1950 = {symbol}1,950).
+                  <strong> discountPercent</strong>: 0-100 (e.g. 50 = 50% off).
+                </p>
+              </div>
+              <Input
+                ref={itemFileRef}
+                type="file"
+                accept=".csv"
+                onChange={handleItemFile}
+                data-testid="input-csv-order-items"
+              />
+              {itemRows.length > 0 && (
+                <div className="space-y-1">
+                  <p className="text-xs font-medium">{itemFileName} - {itemRows.length} item(s)</p>
+                  <div className="border rounded-lg overflow-auto max-h-36">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          {itemHeaders.map(h => <TableHead key={h} className="text-xs whitespace-nowrap py-1 px-2">{h}</TableHead>)}
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {itemRows.slice(0, 5).map((row, i) => (
+                          <TableRow key={i} data-testid={`items-preview-row-${i}`}>
+                            {itemHeaders.map(h => (
+                              <TableCell key={h} className="text-xs py-1 px-2">{row[h] || '-'}</TableCell>
+                            ))}
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                  {itemRows.length > 5 && <p className="text-xs text-muted-foreground">...and {itemRows.length - 5} more</p>}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+            <AlertCircle className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
+            <p className="text-xs text-blue-700 dark:text-blue-300">
+              Uploading orders will automatically update inventory (stock decreases) and create ledger entries. 
+              Credit orders will increase customer balances. COD/Bank Transfer orders will auto-record payments.
+            </p>
+          </div>
+
+          {(customers || []).length > 0 && (
+            <details className="text-xs">
+              <summary className="cursor-pointer text-muted-foreground">View Customer IDs for reference</summary>
+              <div className="mt-2 max-h-32 overflow-auto border rounded p-2 space-y-1">
+                {(customers || []).map((c: any) => (
+                  <div key={c.id} className="flex gap-2">
+                    <span className="font-mono font-bold">{c.id}</span>
+                    <span>{c.name}</span>
+                    {c.phone && <span className="text-muted-foreground">({c.phone})</span>}
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
+
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={resetAndClose} data-testid="button-cancel-bulk-orders">Cancel</Button>
+            <Button
+              onClick={handleUpload}
+              disabled={orderRows.length === 0 || itemRows.length === 0 || isUploading}
+              data-testid="button-submit-bulk-orders"
+            >
+              {isUploading ? "Uploading..." : `Upload ${orderRows.length} Order(s)`}
+            </Button>
+          </div>
         </div>
       </DialogContent>
     </Dialog>

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useCustomers, useCreateCustomer, useCreateLedgerEntry, useCustomerLedger } from "@/hooks/use-customers";
 import { useCurrency } from "@/hooks/use-currency";
 import { Button } from "@/components/ui/button";
@@ -19,7 +19,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Search, Eye, Wallet, Calendar, DollarSign, FileText } from "lucide-react";
+import { Plus, Search, Eye, Wallet, Calendar, DollarSign, FileText, Upload, AlertCircle, CheckCircle2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -30,10 +30,15 @@ import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card } from "@/components/ui/card";
+import { useQueryClient } from "@tanstack/react-query";
+import { api } from "@shared/routes";
+import Papa from "papaparse";
 
 export default function Customers() {
   const [search, setSearch] = useState("");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [isBulkUploadOpen, setIsBulkUploadOpen] = useState(false);
+  const [isBulkLedgerOpen, setIsBulkLedgerOpen] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<any | null>(null);
   const { formatCurrency, formatCurrencyShort } = useCurrency();
 
@@ -46,10 +51,20 @@ export default function Customers() {
           <h1 className="text-3xl font-display font-bold">Customers</h1>
           <p className="text-muted-foreground">Manage client relationships and credit.</p>
         </div>
-        <Button onClick={() => setIsCreateOpen(true)} className="shadow-lg shadow-primary/25">
-          <Plus className="w-4 h-4 mr-2" />
-          Add Customer
-        </Button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button variant="outline" onClick={() => setIsBulkLedgerOpen(true)} data-testid="button-bulk-ledger">
+            <Upload className="w-4 h-4 mr-2" />
+            Upload Ledger
+          </Button>
+          <Button variant="outline" onClick={() => setIsBulkUploadOpen(true)} data-testid="button-bulk-customers">
+            <Upload className="w-4 h-4 mr-2" />
+            Upload Customers
+          </Button>
+          <Button onClick={() => setIsCreateOpen(true)} className="shadow-lg shadow-primary/25">
+            <Plus className="w-4 h-4 mr-2" />
+            Add Customer
+          </Button>
+        </div>
       </div>
 
       <div className="relative w-full max-w-sm">
@@ -125,6 +140,8 @@ export default function Customers() {
       </div>
 
       <CreateCustomerDialog open={isCreateOpen} onOpenChange={setIsCreateOpen} />
+      <BulkCustomerUploadDialog open={isBulkUploadOpen} onOpenChange={setIsBulkUploadOpen} />
+      <BulkLedgerUploadDialog open={isBulkLedgerOpen} onOpenChange={setIsBulkLedgerOpen} customers={customers || []} />
       
       {selectedCustomer && (
         <CustomerDetailsDialog 
@@ -438,6 +455,309 @@ function CustomerDetailsDialog({ customer, open, onOpenChange }: any) {
             </div>
           </TabsContent>
         </Tabs>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function BulkCustomerUploadDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [parsedRows, setParsedRows] = useState<any[]>([]);
+  const [fileName, setFileName] = useState("");
+  const [isUploading, setIsUploading] = useState(false);
+  const { symbol } = useCurrency();
+
+  const expectedHeaders = ['name', 'email', 'phone', 'address', 'panVatNumber', 'creditLimit'];
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setFileName(file.name);
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (results) => {
+        setParsedRows(results.data as any[]);
+      },
+      error: () => {
+        toast({ title: "Failed to parse CSV", variant: "destructive" });
+      }
+    });
+  };
+
+  const handleUpload = async () => {
+    if (parsedRows.length === 0) return;
+    setIsUploading(true);
+    try {
+      const res = await fetch('/api/bulk/customers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rows: parsedRows }),
+        credentials: 'include',
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        const errorCount = data.errors?.length || 0;
+        const firstErrors = (data.errors || []).slice(0, 5).map((e: any) => `Row ${e.row}: ${e.message}`).join('\n');
+        toast({ title: `${errorCount} row(s) have errors`, description: firstErrors, variant: "destructive" });
+        return;
+      }
+      let msg = `${data.created} customer(s) created successfully.`;
+      if (data.duplicatePhones?.length > 0) {
+        msg += ` ${data.duplicatePhones.length} duplicate phone number(s) found (still uploaded).`;
+      }
+      toast({ title: msg });
+      queryClient.invalidateQueries({ queryKey: [api.customers.list.path] });
+      resetAndClose();
+    } catch (err: any) {
+      toast({ title: "Upload failed", description: err.message, variant: "destructive" });
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const resetAndClose = () => {
+    setParsedRows([]);
+    setFileName("");
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    onOpenChange(false);
+  };
+
+  const previewRows = parsedRows.slice(0, 5);
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!v) resetAndClose(); else onOpenChange(v); }}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Bulk Upload Customers</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="bg-muted/50 rounded-lg p-3 text-sm space-y-1">
+            <p className="font-medium">CSV Headers:</p>
+            <code className="text-xs bg-muted px-2 py-1 rounded block" data-testid="text-csv-headers">
+              {expectedHeaders.join(', ')}
+            </code>
+            <p className="text-muted-foreground text-xs mt-1">
+              <strong>name</strong> is required. <strong>creditLimit</strong> is in currency units (e.g. 1500 = {symbol}1,500). 
+              <strong> panVatNumber</strong> must be numeric only. <strong>phone</strong> is used for duplicate detection.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <Input
+              ref={fileInputRef}
+              type="file"
+              accept=".csv"
+              onChange={handleFileChange}
+              data-testid="input-csv-customers"
+            />
+          </div>
+
+          {parsedRows.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-medium">{fileName} - {parsedRows.length} row(s) parsed</p>
+                <p className="text-xs text-muted-foreground">Showing first {Math.min(5, parsedRows.length)} rows</p>
+              </div>
+              <div className="border rounded-lg overflow-auto max-h-48">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      {expectedHeaders.map(h => <TableHead key={h} className="text-xs whitespace-nowrap">{h}</TableHead>)}
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {previewRows.map((row, i) => (
+                      <TableRow key={i} data-testid={`preview-row-${i}`}>
+                        {expectedHeaders.map(h => (
+                          <TableCell key={h} className="text-xs py-1">{row[h] || '-'}</TableCell>
+                        ))}
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+              {parsedRows.length > 5 && (
+                <p className="text-xs text-muted-foreground">...and {parsedRows.length - 5} more row(s)</p>
+              )}
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={resetAndClose} data-testid="button-cancel-bulk">Cancel</Button>
+            <Button
+              onClick={handleUpload}
+              disabled={parsedRows.length === 0 || isUploading}
+              data-testid="button-submit-bulk-customers"
+            >
+              {isUploading ? "Uploading..." : `Upload ${parsedRows.length} Customer(s)`}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function BulkLedgerUploadDialog({ open, onOpenChange, customers }: { open: boolean; onOpenChange: (open: boolean) => void; customers: any[] }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [parsedRows, setParsedRows] = useState<any[]>([]);
+  const [fileName, setFileName] = useState("");
+  const [isUploading, setIsUploading] = useState(false);
+  const { symbol } = useCurrency();
+
+  const expectedHeaders = ['customerRefID', 'type', 'amount', 'description', 'entryDate'];
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setFileName(file.name);
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (results) => {
+        setParsedRows(results.data as any[]);
+      },
+      error: () => {
+        toast({ title: "Failed to parse CSV", variant: "destructive" });
+      }
+    });
+  };
+
+  const handleUpload = async () => {
+    if (parsedRows.length === 0) return;
+    setIsUploading(true);
+    try {
+      const res = await fetch('/api/bulk/ledger', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rows: parsedRows }),
+        credentials: 'include',
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        const errorCount = data.errors?.length || 0;
+        const firstErrors = (data.errors || []).slice(0, 5).map((e: any) => `Row ${e.row}: ${e.message}`).join('\n');
+        toast({ title: `${errorCount} row(s) have errors`, description: firstErrors, variant: "destructive" });
+        return;
+      }
+      toast({ title: `${data.created} ledger entry/entries created successfully.` });
+      queryClient.invalidateQueries({ queryKey: [api.customers.list.path] });
+      queryClient.invalidateQueries({ queryKey: [api.ledger.list.path] });
+      resetAndClose();
+    } catch (err: any) {
+      toast({ title: "Upload failed", description: err.message, variant: "destructive" });
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const resetAndClose = () => {
+    setParsedRows([]);
+    setFileName("");
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    onOpenChange(false);
+  };
+
+  const previewRows = parsedRows.slice(0, 5);
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!v) resetAndClose(); else onOpenChange(v); }}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Bulk Upload Ledger Entries</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="bg-muted/50 rounded-lg p-3 text-sm space-y-1">
+            <p className="font-medium">CSV Headers:</p>
+            <code className="text-xs bg-muted px-2 py-1 rounded block" data-testid="text-ledger-csv-headers">
+              {expectedHeaders.join(', ')}
+            </code>
+            <p className="text-muted-foreground text-xs mt-1">
+              <strong>customerRefID</strong> = the customer's database ID (visible in the Customers table below).
+              <strong> amount</strong> is in currency units (e.g. 500 = {symbol}500).
+              <strong> entryDate</strong> format: YYYY-MM-DD.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border border-yellow-200 dark:border-yellow-800">
+            <AlertCircle className="w-4 h-4 text-yellow-600 dark:text-yellow-400 shrink-0" />
+            <p className="text-xs text-yellow-700 dark:text-yellow-300">
+              Only <strong>credit</strong> (payment/deposit) and <strong>adjustment</strong> entries can be uploaded. 
+              Purchase entries are automatically created when orders are placed.
+            </p>
+          </div>
+
+          {customers.length > 0 && (
+            <details className="text-xs">
+              <summary className="cursor-pointer text-muted-foreground">View Customer IDs for reference</summary>
+              <div className="mt-2 max-h-32 overflow-auto border rounded p-2 space-y-1">
+                {customers.map((c: any) => (
+                  <div key={c.id} className="flex gap-2">
+                    <span className="font-mono font-bold">{c.id}</span>
+                    <span>{c.name}</span>
+                    {c.phone && <span className="text-muted-foreground">({c.phone})</span>}
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
+
+          <div className="flex items-center gap-3">
+            <Input
+              ref={fileInputRef}
+              type="file"
+              accept=".csv"
+              onChange={handleFileChange}
+              data-testid="input-csv-ledger"
+            />
+          </div>
+
+          {parsedRows.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-medium">{fileName} - {parsedRows.length} row(s) parsed</p>
+                <p className="text-xs text-muted-foreground">Showing first {Math.min(5, parsedRows.length)} rows</p>
+              </div>
+              <div className="border rounded-lg overflow-auto max-h-48">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      {expectedHeaders.map(h => <TableHead key={h} className="text-xs whitespace-nowrap">{h}</TableHead>)}
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {previewRows.map((row, i) => (
+                      <TableRow key={i} data-testid={`ledger-preview-row-${i}`}>
+                        {expectedHeaders.map(h => (
+                          <TableCell key={h} className="text-xs py-1">{row[h] || '-'}</TableCell>
+                        ))}
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+              {parsedRows.length > 5 && (
+                <p className="text-xs text-muted-foreground">...and {parsedRows.length - 5} more row(s)</p>
+              )}
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={resetAndClose} data-testid="button-cancel-bulk-ledger">Cancel</Button>
+            <Button
+              onClick={handleUpload}
+              disabled={parsedRows.length === 0 || isUploading}
+              data-testid="button-submit-bulk-ledger"
+            >
+              {isUploading ? "Uploading..." : `Upload ${parsedRows.length} Entry/Entries`}
+            </Button>
+          </div>
+        </div>
       </DialogContent>
     </Dialog>
   );

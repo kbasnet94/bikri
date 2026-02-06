@@ -44,6 +44,32 @@ The system tracks all inventory movements for each product:
 - `POST /api/inventory-movements` - Create a new movement
 - `GET /api/products/:productId/stock-at-date?date=X` - Get stock quantity on a specific date
 
+### Bulk Upload (CSV)
+The system supports bulk uploading data via CSV files:
+
+**Customers Bulk Upload** (Customers page → "Upload Customers"):
+- CSV Headers: `name, email, phone, address, panVatNumber, creditLimit`
+- `name` is required; `creditLimit` in currency units (converted to cents internally)
+- `panVatNumber` must be numeric only; `phone` is used for duplicate detection (duplicates still allowed)
+- API: `POST /api/bulk/customers` with `{ rows: [...] }`
+
+**Orders + Order Items Bulk Upload** (Orders page → "Upload Orders"):
+- Two CSV files uploaded together in the same dialog
+- Orders CSV Headers: `orderRef, customerRefID, status, paymentStatus, note, vatBillNumber, orderDate`
+- Order Items CSV Headers: `orderRef, productSKU, quantity, unitPrice, discountPercent`
+- `orderRef` links items to orders; `customerRefID` = customer database ID; `productSKU` = product SKU
+- `discountPercent`: 0-100 (50 means 50% off); `unitPrice` in currency units
+- Inventory auto-decremented; ledger entries auto-created (Credit orders increase balance, COD/Bank Transfer auto-record payment)
+- API: `POST /api/bulk/orders` with `{ orders: [...], items: [...] }`
+
+**Ledger Entries Bulk Upload** (Customers page → "Upload Ledger"):
+- CSV Headers: `customerRefID, type, amount, description, entryDate`
+- Only `credit` and `adjustment` types allowed (purchase entries are auto-created by orders)
+- `customerRefID` = customer database ID; `amount` in currency units; `entryDate` in YYYY-MM-DD
+- API: `POST /api/bulk/ledger` with `{ rows: [...] }`
+
+All uploads show a 5-row preview before confirming and display validation error summaries.
+
 ## User Preferences
 
 Preferred communication style: Simple, everyday language.

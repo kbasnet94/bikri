@@ -335,5 +335,333 @@ export async function registerRoutes(
     }
   });
 
+  // ============================================
+  // BULK UPLOAD ENDPOINTS
+  // ============================================
+
+  // Bulk upload customers
+  app.post('/api/bulk/customers', isAuthenticated, requireBusiness, async (req: any, res) => {
+    try {
+      const businessId = req.user.businessId;
+      const rows: any[] = req.body.rows;
+      if (!Array.isArray(rows) || rows.length === 0) {
+        return res.status(400).json({ message: "No rows provided" });
+      }
+
+      const errors: { row: number; message: string }[] = [];
+      const validRows: any[] = [];
+
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        const rowErrors: string[] = [];
+
+        if (!row.name || String(row.name).trim() === '') {
+          rowErrors.push('name is required');
+        }
+        if (row.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(row.email).trim())) {
+          rowErrors.push('invalid email format');
+        }
+        if (row.panVatNumber && !/^\d+$/.test(String(row.panVatNumber).trim())) {
+          rowErrors.push('PAN/VAT number must be numeric only');
+        }
+        if (row.creditLimit !== undefined && row.creditLimit !== '' && isNaN(Number(row.creditLimit))) {
+          rowErrors.push('creditLimit must be a number');
+        }
+
+        if (rowErrors.length > 0) {
+          errors.push({ row: i + 1, message: rowErrors.join('; ') });
+        } else {
+          validRows.push({
+            name: String(row.name).trim(),
+            email: row.email ? String(row.email).trim() : null,
+            phone: row.phone ? String(row.phone).trim() : null,
+            address: row.address ? String(row.address).trim() : null,
+            panVatNumber: row.panVatNumber ? String(row.panVatNumber).trim() : null,
+            creditLimit: row.creditLimit ? Math.round(Number(row.creditLimit) * 100) : 0,
+          });
+        }
+      }
+
+      if (errors.length > 0) {
+        return res.status(400).json({ message: `${errors.length} row(s) have errors`, errors });
+      }
+
+      const duplicatePhones: { row: number; phone: string }[] = [];
+      const created: any[] = [];
+
+      for (let i = 0; i < validRows.length; i++) {
+        const row = validRows[i];
+        if (row.phone) {
+          const existing = await storage.getCustomers(businessId, { search: row.phone });
+          const match = existing.find((c: any) => c.phone === row.phone);
+          if (match) {
+            duplicatePhones.push({ row: i + 1, phone: row.phone });
+          }
+        }
+        const customer = await storage.createCustomer(businessId, row);
+        created.push(customer);
+      }
+
+      res.status(201).json({
+        created: created.length,
+        duplicatePhones,
+      });
+    } catch (err) {
+      if (err instanceof Error) return res.status(400).json({ message: err.message });
+      throw err;
+    }
+  });
+
+  // Bulk upload orders + order items
+  app.post('/api/bulk/orders', isAuthenticated, requireBusiness, async (req: any, res) => {
+    try {
+      const businessId = req.user.businessId;
+      const orderRows: any[] = req.body.orders;
+      const itemRows: any[] = req.body.items;
+
+      if (!Array.isArray(orderRows) || orderRows.length === 0) {
+        return res.status(400).json({ message: "No order rows provided" });
+      }
+      if (!Array.isArray(itemRows) || itemRows.length === 0) {
+        return res.status(400).json({ message: "No order item rows provided" });
+      }
+
+      const validStatuses = ['new', 'in-process', 'ready', 'completed'];
+      const validPaymentStatuses = ['COD', 'Bank Transfer/QR', 'Credit'];
+      const errors: { row: number; file: string; message: string }[] = [];
+
+      const orderMap = new Map<string, any>();
+      for (let i = 0; i < orderRows.length; i++) {
+        const row = orderRows[i];
+        const rowErrors: string[] = [];
+
+        if (!row.orderRef || String(row.orderRef).trim() === '') {
+          rowErrors.push('orderRef is required');
+        }
+        if (!row.customerRefID || isNaN(Number(row.customerRefID))) {
+          rowErrors.push('customerRefID must be a valid number');
+        }
+        if (row.status && !validStatuses.includes(String(row.status).trim())) {
+          rowErrors.push(`status must be one of: ${validStatuses.join(', ')}`);
+        }
+        if (row.paymentStatus && !validPaymentStatuses.includes(String(row.paymentStatus).trim())) {
+          rowErrors.push(`paymentStatus must be one of: ${validPaymentStatuses.join(', ')}`);
+        }
+        if (row.orderDate && isNaN(Date.parse(String(row.orderDate)))) {
+          rowErrors.push('orderDate must be a valid date (YYYY-MM-DD)');
+        }
+        if (row.vatBillNumber && !/^\d+$/.test(String(row.vatBillNumber).trim())) {
+          rowErrors.push('vatBillNumber must be numeric only');
+        }
+
+        if (rowErrors.length > 0) {
+          errors.push({ row: i + 1, file: 'orders', message: rowErrors.join('; ') });
+        } else {
+          const ref = String(row.orderRef).trim();
+          if (orderMap.has(ref)) {
+            errors.push({ row: i + 1, file: 'orders', message: `Duplicate orderRef: ${ref}` });
+          } else {
+            orderMap.set(ref, {
+              customerRefID: Number(row.customerRefID),
+              status: row.status ? String(row.status).trim() : 'new',
+              paymentStatus: row.paymentStatus ? String(row.paymentStatus).trim() : 'Credit',
+              note: row.note ? String(row.note).trim() : null,
+              vatBillNumber: row.vatBillNumber ? String(row.vatBillNumber).trim() : null,
+              orderDate: row.orderDate ? String(row.orderDate).trim() : undefined,
+              items: []
+            });
+          }
+        }
+      }
+
+      // Validate items
+      for (let i = 0; i < itemRows.length; i++) {
+        const row = itemRows[i];
+        const rowErrors: string[] = [];
+
+        if (!row.orderRef || String(row.orderRef).trim() === '') {
+          rowErrors.push('orderRef is required');
+        } else if (!orderMap.has(String(row.orderRef).trim())) {
+          rowErrors.push(`orderRef "${row.orderRef}" does not match any order`);
+        }
+        if (!row.productSKU || String(row.productSKU).trim() === '') {
+          rowErrors.push('productSKU is required');
+        }
+        if (!row.quantity || isNaN(Number(row.quantity)) || Number(row.quantity) <= 0 || !Number.isInteger(Number(row.quantity))) {
+          rowErrors.push('quantity must be a positive integer');
+        }
+        if (!row.unitPrice || isNaN(Number(row.unitPrice)) || Number(row.unitPrice) <= 0) {
+          rowErrors.push('unitPrice must be a positive number');
+        }
+        if (row.discountPercent !== undefined && row.discountPercent !== '') {
+          const dp = Number(row.discountPercent);
+          if (isNaN(dp) || dp < 0 || dp > 100) {
+            rowErrors.push('discountPercent must be 0-100 (e.g. 50 means 50% off)');
+          }
+        }
+
+        if (rowErrors.length > 0) {
+          errors.push({ row: i + 1, file: 'orderItems', message: rowErrors.join('; ') });
+        } else {
+          const ref = String(row.orderRef).trim();
+          const order = orderMap.get(ref);
+          if (order) {
+            order.items.push({
+              productSKU: String(row.productSKU).trim(),
+              quantity: Number(row.quantity),
+              unitPrice: Math.round(Number(row.unitPrice) * 100),
+              discountPercent: row.discountPercent !== undefined && row.discountPercent !== '' ? Number(row.discountPercent) : 0,
+            });
+          }
+        }
+      }
+
+      // Check orders with no items
+      Array.from(orderMap.entries()).forEach(([ref, order]) => {
+        if (order.items.length === 0) {
+          errors.push({ row: 0, file: 'orders', message: `Order "${ref}" has no matching items` });
+        }
+      });
+
+      if (errors.length > 0) {
+        return res.status(400).json({ message: `${errors.length} error(s) found`, errors });
+      }
+
+      // Validate customer IDs and product SKUs exist
+      const allProducts = await storage.getProducts(businessId);
+      const skuMap = new Map<string, any>();
+      for (const p of allProducts) {
+        skuMap.set(p.sku, p);
+      }
+
+      const orderEntries = Array.from(orderMap.entries());
+      for (let idx = 0; idx < orderEntries.length; idx++) {
+        const [ref, order] = orderEntries[idx];
+        const customer = await storage.getCustomer(businessId, order.customerRefID);
+        if (!customer) {
+          errors.push({ row: 0, file: 'orders', message: `Customer ID ${order.customerRefID} not found (orderRef: ${ref})` });
+        }
+        for (const item of order.items) {
+          if (!skuMap.has(item.productSKU)) {
+            errors.push({ row: 0, file: 'orderItems', message: `Product SKU "${item.productSKU}" not found (orderRef: ${ref})` });
+          }
+        }
+      }
+
+      if (errors.length > 0) {
+        return res.status(400).json({ message: `${errors.length} error(s) found`, errors });
+      }
+
+      // All valid - create orders using existing createOrder logic
+      const createdOrders: any[] = [];
+      const allOrderEntries = Array.from(orderMap.entries());
+      for (let idx = 0; idx < allOrderEntries.length; idx++) {
+        const [ref, orderData] = allOrderEntries[idx];
+        const items = orderData.items.map((item: any) => {
+          const product = skuMap.get(item.productSKU)!;
+          return {
+            productId: product.id,
+            quantity: item.quantity,
+            discountPercent: item.discountPercent,
+          };
+        });
+
+        const order = await storage.createOrder(
+          businessId,
+          orderData.customerRefID,
+          items,
+          orderData.note,
+          orderData.paymentStatus,
+          orderData.orderDate,
+          orderData.vatBillNumber
+        );
+        createdOrders.push(order);
+      }
+
+      res.status(201).json({ created: createdOrders.length });
+    } catch (err) {
+      if (err instanceof Error) return res.status(400).json({ message: err.message });
+      throw err;
+    }
+  });
+
+  // Bulk upload ledger entries
+  app.post('/api/bulk/ledger', isAuthenticated, requireBusiness, async (req: any, res) => {
+    try {
+      const businessId = req.user.businessId;
+      const rows: any[] = req.body.rows;
+      if (!Array.isArray(rows) || rows.length === 0) {
+        return res.status(400).json({ message: "No rows provided" });
+      }
+
+      const validTypes = ['credit', 'adjustment'];
+      const errors: { row: number; message: string }[] = [];
+      const validRows: any[] = [];
+
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        const rowErrors: string[] = [];
+
+        if (!row.customerRefID || isNaN(Number(row.customerRefID))) {
+          rowErrors.push('customerRefID must be a valid number');
+        }
+        if (!row.type || !validTypes.includes(String(row.type).trim().toLowerCase())) {
+          rowErrors.push('type must be "credit" or "adjustment"');
+        }
+        if (!row.amount || isNaN(Number(row.amount)) || Number(row.amount) <= 0) {
+          rowErrors.push('amount must be a positive number');
+        }
+        if (row.entryDate && isNaN(Date.parse(String(row.entryDate)))) {
+          rowErrors.push('entryDate must be a valid date (YYYY-MM-DD)');
+        }
+
+        if (rowErrors.length > 0) {
+          errors.push({ row: i + 1, message: rowErrors.join('; ') });
+        } else {
+          validRows.push({
+            customerRefID: Number(row.customerRefID),
+            type: String(row.type).trim().toLowerCase(),
+            amount: Math.round(Number(row.amount) * 100),
+            description: row.description ? String(row.description).trim() : null,
+            entryDate: row.entryDate ? new Date(String(row.entryDate)) : new Date(),
+          });
+        }
+      }
+
+      if (errors.length > 0) {
+        return res.status(400).json({ message: `${errors.length} row(s) have errors`, errors });
+      }
+
+      // Validate all customer IDs
+      for (let i = 0; i < validRows.length; i++) {
+        const row = validRows[i];
+        const customer = await storage.getCustomer(businessId, row.customerRefID);
+        if (!customer) {
+          errors.push({ row: i + 1, message: `Customer ID ${row.customerRefID} not found` });
+        }
+      }
+
+      if (errors.length > 0) {
+        return res.status(400).json({ message: `${errors.length} row(s) have errors`, errors });
+      }
+
+      const created: any[] = [];
+      for (const row of validRows) {
+        const entry = await storage.createLedgerEntry(businessId, {
+          customerId: row.customerRefID,
+          type: row.type,
+          amount: row.amount,
+          description: row.description,
+        });
+        created.push(entry);
+      }
+
+      res.status(201).json({ created: created.length });
+    } catch (err) {
+      if (err instanceof Error) return res.status(400).json({ message: err.message });
+      throw err;
+    }
+  });
+
   return httpServer;
 }
