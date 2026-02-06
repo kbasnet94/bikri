@@ -55,6 +55,7 @@ export const orders = pgTable("orders", {
   paymentStatus: text("payment_status").notNull().default("Credit"), // COD, Bank Transfer/QR, Credit
   totalAmount: integer("total_amount").notNull(), // in cents
   note: text("note"), // optional order note
+  vatBillNumber: varchar("vat_bill_number"), // optional VAT bill number
   orderDate: timestamp("order_date").defaultNow(),
   createdAt: timestamp("created_at").defaultNow(),
 });
@@ -199,6 +200,7 @@ export type CreateOrderRequest = {
   note?: string; // optional order note
   paymentStatus: PaymentStatusType; // required payment status
   orderDate?: string; // optional ISO date string, defaults to now
+  vatBillNumber?: string; // optional VAT bill number
 };
 export const updateOrderSchema = z.object({
   status: z.enum(ORDER_STATUS_VALUES)

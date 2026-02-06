@@ -4,6 +4,14 @@
 
 Bikri is a full-stack wholesale business management application built for tracking inventory, managing customer credit accounts, and processing orders. The system provides a dashboard with analytics (including monthly revenue), inventory management with categories, customer ledger tracking, and order processing with multi-stage status workflow and payment tracking. The app supports light/dark mode switching.
 
+### VAT Bill Numbers
+Orders can optionally include a VAT bill number:
+- **Include VAT checkbox**: When creating a new order, users can check "Include VAT"
+- **Auto-suggested number**: The system suggests the next bill number (last used + 1, or 1 if first time)
+- **Editable**: Users can modify the suggested bill number
+- **Displayed in table**: VAT Bill # column shown in the orders table
+- **API**: `GET /api/vat/next-bill-number` returns the next suggested VAT bill number for the business
+
 ### Order Payment Status
 Orders have a payment status field with three options:
 - **COD (Cash on Delivery)**: Order is paid at delivery. Automatically creates a payment ledger entry.

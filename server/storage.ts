@@ -31,7 +31,8 @@ export interface IStorage {
   // Orders
   getOrders(businessId: string, query?: { customerId?: number }): Promise<OrderResponse[]>;
   getOrder(businessId: string, id: number): Promise<OrderResponse | undefined>;
-  createOrder(businessId: string, customerId: number, items: { productId: number; quantity: number; discountPercent?: number }[], note?: string, paymentStatus?: string, orderDate?: string): Promise<Order>;
+  createOrder(businessId: string, customerId: number, items: { productId: number; quantity: number; discountPercent?: number }[], note?: string, paymentStatus?: string, orderDate?: string, vatBillNumber?: string): Promise<Order>;
+  getNextVatBillNumber(businessId: string): Promise<string>;
   updateOrderStatus(businessId: string, id: number, status: string): Promise<Order | undefined>;
   updatePaymentStatus(businessId: string, id: number, newPaymentStatus: string): Promise<Order | undefined>;
   editOrder(businessId: string, id: number, data: { note?: string; orderDate?: string; items: { id: number; quantity: number; discountPercent: number }[] }): Promise<OrderResponse | undefined>;
@@ -175,7 +176,23 @@ export class DatabaseStorage implements IStorage {
     });
   }
 
-  async createOrder(businessId: string, customerId: number, items: { productId: number; quantity: number; discountPercent?: number }[], note?: string, paymentStatus: string = "Credit", orderDate?: string): Promise<Order> {
+  async getNextVatBillNumber(businessId: string): Promise<string> {
+    const result = await db.select({ vatBillNumber: orders.vatBillNumber })
+      .from(orders)
+      .where(and(eq(orders.businessId, businessId), sql`${orders.vatBillNumber} IS NOT NULL`))
+      .orderBy(desc(orders.id));
+    
+    let maxNum = 0;
+    for (const row of result) {
+      const num = parseInt(row.vatBillNumber || "0", 10);
+      if (!isNaN(num) && num > maxNum) {
+        maxNum = num;
+      }
+    }
+    return String(maxNum + 1);
+  }
+
+  async createOrder(businessId: string, customerId: number, items: { productId: number; quantity: number; discountPercent?: number }[], note?: string, paymentStatus: string = "Credit", orderDate?: string, vatBillNumber?: string): Promise<Order> {
     let totalAmount = 0;
     const finalItems: { productId: number; quantity: number; unitPrice: number; discount: number }[] = [];
 
@@ -212,6 +229,7 @@ export class DatabaseStorage implements IStorage {
         status: "new",
         paymentStatus,
         note: note || null,
+        vatBillNumber: vatBillNumber || null,
         orderDate: orderDate ? new Date(orderDate) : new Date()
       }).returning();
 

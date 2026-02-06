@@ -184,6 +184,7 @@ export const api = {
         note: z.string().optional(), // optional order note
         paymentStatus: z.enum(PAYMENT_STATUS_VALUES), // COD, Bank Transfer/QR, Credit
         orderDate: z.string().optional(), // ISO date string, defaults to now
+        vatBillNumber: z.string().optional(), // optional VAT bill number
       }),
       responses: {
         201: z.custom<typeof orders.$inferSelect>(),
@@ -216,6 +217,15 @@ export const api = {
       responses: {
         200: z.custom<typeof orders.$inferSelect & { customer: typeof customers.$inferSelect, items: (typeof orderItems.$inferSelect & { product: typeof products.$inferSelect })[] }>(),
         404: errorSchemas.notFound,
+      },
+    },
+  },
+  vat: {
+    nextBillNumber: {
+      method: 'GET' as const,
+      path: '/api/vat/next-bill-number',
+      responses: {
+        200: z.object({ nextBillNumber: z.string() }),
       },
     },
   },

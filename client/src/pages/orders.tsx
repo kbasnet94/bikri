@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useOrders, useCreateOrder, useUpdateOrderStatus, useEditOrder, useUpdatePaymentStatus } from "@/hooks/use-orders";
 import { useCustomers, useCreateCustomer } from "@/hooks/use-customers";
 import { Label } from "@/components/ui/label";
@@ -30,7 +31,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, ShoppingCart, Trash2, CheckCircle, XCircle, Clock, Package, Truck, ChevronDown, ChevronRight, FileText, Pencil, Search, DollarSign, ShoppingBag, X } from "lucide-react";
+import { Plus, ShoppingCart, Trash2, CheckCircle, XCircle, Clock, Package, Truck, ChevronDown, ChevronRight, FileText, Pencil, Search, DollarSign, ShoppingBag, X, Receipt } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
@@ -328,8 +330,8 @@ export default function Orders() {
                     <TableHead>Address</TableHead>
                     <TableHead>Date</TableHead>
                     <TableHead>Total</TableHead>
-                    <TableHead>Status</TableHead>
                     <TableHead>Payment</TableHead>
+                    <TableHead>VAT Bill #</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -359,13 +361,11 @@ export default function Orders() {
                             <TableCell className="text-muted-foreground text-sm max-w-[200px] truncate">{order.customer?.address || '-'}</TableCell>
                             <TableCell className="text-muted-foreground text-sm">{format(new Date(order.orderDate!), 'MMM dd, yyyy')}</TableCell>
                             <TableCell className="font-mono font-medium">{formatCurrency(order.totalAmount)}</TableCell>
-                            <TableCell>
-                              <Badge variant="outline" className={cn("capitalize", getStatusBadgeStyle(normalizeStatus(order.status)))}>
-                                {getStatusLabel(normalizeStatus(order.status))}
-                              </Badge>
-                            </TableCell>
                             <TableCell onClick={(e) => e.stopPropagation()}>
                               <PaymentStatusCell order={order} />
+                            </TableCell>
+                            <TableCell className="text-sm text-muted-foreground">
+                              {order.vatBillNumber || '-'}
                             </TableCell>
                             <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                               <OrderActions order={order} onStatusUpdate={handleStatusUpdate} onEdit={setEditingOrder} />
@@ -834,6 +834,8 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
   const [orderNote, setOrderNote] = useState("");
   const [paymentStatus, setPaymentStatus] = useState<"COD" | "Bank Transfer/QR" | "Credit" | "">("");
   const [orderDate, setOrderDate] = useState(() => format(new Date(), "yyyy-MM-dd"));
+  const [includeVat, setIncludeVat] = useState(false);
+  const [vatBillNumber, setVatBillNumber] = useState("");
   
   const { data: customers } = useCustomers();
   const { data: products } = useProducts();
@@ -841,6 +843,22 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
   const createCustomer = useCreateCustomer();
   const { toast } = useToast();
   const { formatCurrency } = useCurrency();
+
+  const { data: nextVatData } = useQuery<{ nextBillNumber: string }>({
+    queryKey: ['/api/vat/next-bill-number'],
+    queryFn: async () => {
+      const res = await fetch('/api/vat/next-bill-number', { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to fetch next VAT bill number');
+      return res.json();
+    },
+    enabled: open && includeVat,
+  });
+
+  useEffect(() => {
+    if (includeVat && nextVatData?.nextBillNumber && !vatBillNumber) {
+      setVatBillNumber(nextVatData.nextBillNumber);
+    }
+  }, [includeVat, nextVatData]);
   
   const filteredCustomers = customers?.filter(c => {
     if (!customerSearch) return true;
@@ -911,6 +929,10 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
       toast({ title: "Please select a payment status", variant: "destructive" });
       return;
     }
+    if (includeVat && !vatBillNumber.trim()) {
+      toast({ title: "Please enter a VAT bill number", variant: "destructive" });
+      return;
+    }
     
     try {
       await createOrder.mutateAsync({
@@ -922,7 +944,8 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
         })),
         note: orderNote.trim() || undefined,
         paymentStatus: paymentStatus as "COD" | "Bank Transfer/QR" | "Credit",
-        orderDate: orderDate
+        orderDate: orderDate,
+        vatBillNumber: includeVat && vatBillNumber.trim() ? vatBillNumber.trim() : undefined,
       });
       toast({ title: "Order created successfully!" });
       onOpenChange(false);
@@ -933,6 +956,8 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
       setOrderNote("");
       setPaymentStatus("");
       setOrderDate(format(new Date(), "yyyy-MM-dd"));
+      setIncludeVat(false);
+      setVatBillNumber("");
     } catch (error: any) {
       toast({ title: "Failed to create order", description: error.message, variant: "destructive" });
     }
@@ -1186,6 +1211,40 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
                       ? "Customer will pay later. You can add payment in the ledger later."
                       : "Payment will be recorded automatically in the customer's ledger."}
                 </p>
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="include-vat"
+                    checked={includeVat}
+                    onCheckedChange={(checked) => {
+                      setIncludeVat(!!checked);
+                      if (!checked) setVatBillNumber("");
+                    }}
+                    data-testid="checkbox-include-vat"
+                  />
+                  <Label htmlFor="include-vat" className="text-sm cursor-pointer">Include VAT</Label>
+                </div>
+                {includeVat && (
+                  <div className="space-y-2 pl-6">
+                    <Label htmlFor="vat-bill-number" className="text-sm">VAT Bill Number</Label>
+                    <div className="flex items-center gap-2">
+                      <Receipt className="w-4 h-4 text-muted-foreground" />
+                      <Input
+                        id="vat-bill-number"
+                        value={vatBillNumber}
+                        onChange={(e) => setVatBillNumber(e.target.value)}
+                        placeholder="VAT bill number"
+                        className="flex-1"
+                        data-testid="input-vat-bill-number"
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Auto-suggested based on last bill number. You can edit it if needed.
+                    </p>
+                  </div>
+                )}
               </div>
 
               <div className="space-y-2">

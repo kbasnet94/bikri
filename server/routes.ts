@@ -168,11 +168,21 @@ export async function registerRoutes(
     res.json(order);
   });
 
+  app.get(api.vat.nextBillNumber.path, isAuthenticated, requireBusiness, async (req: any, res) => {
+    try {
+      const businessId = req.user.businessId;
+      const nextBillNumber = await storage.getNextVatBillNumber(businessId);
+      res.json({ nextBillNumber });
+    } catch (err) {
+      throw err;
+    }
+  });
+
   app.post(api.orders.create.path, isAuthenticated, requireBusiness, async (req: any, res) => {
     try {
       const businessId = req.user.businessId;
       const input = api.orders.create.input.parse(req.body);
-      const order = await storage.createOrder(businessId, input.customerId, input.items, input.note, input.paymentStatus, input.orderDate);
+      const order = await storage.createOrder(businessId, input.customerId, input.items, input.note, input.paymentStatus, input.orderDate, input.vatBillNumber);
       res.status(201).json(order);
     } catch (err) {
       if (err instanceof z.ZodError) {
