@@ -7,53 +7,35 @@ import { Loader2 } from "lucide-react";
 import { Logo } from "@/components/logo";
 import logoDark from "@assets/Bikri_Logo_1_1770108812464.png";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
+import { useLogin, useRegister } from "@/hooks/use-auth";
+import { useLocation } from "wouter";
 
-type AuthMode = "login" | "register" | "set-password";
+type AuthMode = "login" | "register";
 
 export default function Login() {
   const [mode, setMode] = useState<AuthMode>("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
   const [businessName, setBusinessName] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
-  const [needsPasswordSetup, setNeedsPasswordSetup] = useState(false);
   const { toast } = useToast();
+  const loginMutation = useLogin();
+  const registerMutation = useRegister();
+  const [, setLocation] = useLocation();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsLoading(true);
 
     try {
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
-        credentials: "include",
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        if (data.needsPasswordSetup) {
-          setNeedsPasswordSetup(true);
-          setMode("set-password");
-          toast({ title: "Please set a password", description: "Your account was created with SSO. Set a password to continue." });
-        } else {
-          toast({ title: "Login failed", description: data.message, variant: "destructive" });
-        }
-        return;
-      }
-
+      await loginMutation.mutateAsync({ email, password });
       toast({ title: "Welcome back!" });
-      window.location.href = "/";
+      setLocation("/");
     } catch (error: any) {
-      toast({ title: "Login failed", description: error.message, variant: "destructive" });
-    } finally {
-      setIsLoading(false);
+      toast({ 
+        title: "Login failed", 
+        description: error.message || "Invalid credentials", 
+        variant: "destructive" 
+      });
     }
   };
 
@@ -70,70 +52,27 @@ export default function Login() {
       return;
     }
 
-    setIsLoading(true);
-
     try {
-      const res = await fetch("/api/auth/register", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password, firstName, lastName, businessName: businessName || undefined }),
-        credentials: "include",
+      await registerMutation.mutateAsync({ 
+        email, 
+        password, 
+        businessName: businessName || undefined 
       });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        toast({ title: "Registration failed", description: data.message, variant: "destructive" });
-        return;
-      }
-
-      toast({ title: "Account created!" });
-      window.location.href = "/";
+      toast({ 
+        title: "Account created!", 
+        description: "You can now sign in with your credentials." 
+      });
+      setMode("login");
     } catch (error: any) {
-      toast({ title: "Registration failed", description: error.message, variant: "destructive" });
-    } finally {
-      setIsLoading(false);
+      toast({ 
+        title: "Registration failed", 
+        description: error.message || "Could not create account", 
+        variant: "destructive" 
+      });
     }
   };
 
-  const handleSetPassword = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (password !== confirmPassword) {
-      toast({ title: "Passwords don't match", variant: "destructive" });
-      return;
-    }
-
-    if (password.length < 6) {
-      toast({ title: "Password must be at least 6 characters", variant: "destructive" });
-      return;
-    }
-
-    setIsLoading(true);
-
-    try {
-      const res = await fetch("/api/auth/set-password", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
-        credentials: "include",
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        toast({ title: "Failed to set password", description: data.message, variant: "destructive" });
-        return;
-      }
-
-      toast({ title: "Password set successfully!" });
-      window.location.href = "/";
-    } catch (error: any) {
-      toast({ title: "Failed to set password", description: error.message, variant: "destructive" });
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const isLoading = loginMutation.isPending || registerMutation.isPending;
 
   return (
     <div className="min-h-screen w-full flex bg-background">
@@ -233,14 +172,10 @@ export default function Login() {
               <Logo size="lg" />
             </div>
             <CardTitle className="text-2xl font-bold font-display">
-              {mode === "login" && "Welcome back"}
-              {mode === "register" && "Create an account"}
-              {mode === "set-password" && "Set your password"}
+              {mode === "login" ? "Welcome back" : "Create an account"}
             </CardTitle>
             <CardDescription>
-              {mode === "login" && "Sign in to your account"}
-              {mode === "register" && "Get started with Bikri"}
-              {mode === "set-password" && "Create a password for your account"}
+              {mode === "login" ? "Sign in to your account" : "Get started with Bikri"}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -285,43 +220,11 @@ export default function Login() {
                     Sign up
                   </button>
                 </div>
-                <div className="text-center text-sm text-muted-foreground">
-                  <button
-                    type="button"
-                    className="text-primary hover:underline font-medium"
-                    onClick={() => setMode("set-password")}
-                    data-testid="link-set-password"
-                  >
-                    Set password for existing account
-                  </button>
-                </div>
               </form>
             )}
 
             {mode === "register" && (
               <form onSubmit={handleRegister} className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="firstName">First Name</Label>
-                    <Input
-                      id="firstName"
-                      placeholder="John"
-                      value={firstName}
-                      onChange={(e) => setFirstName(e.target.value)}
-                      data-testid="input-firstname"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="lastName">Last Name</Label>
-                    <Input
-                      id="lastName"
-                      placeholder="Doe"
-                      value={lastName}
-                      onChange={(e) => setLastName(e.target.value)}
-                      data-testid="input-lastname"
-                    />
-                  </div>
-                </div>
                 <div className="space-y-2">
                   <Label htmlFor="email">Email</Label>
                   <Input
@@ -382,61 +285,6 @@ export default function Login() {
                     data-testid="link-login"
                   >
                     Sign in
-                  </button>
-                </div>
-              </form>
-            )}
-
-            {mode === "set-password" && (
-              <form onSubmit={handleSetPassword} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    placeholder="you@example.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required
-                    data-testid="input-email"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="password">New Password</Label>
-                  <Input
-                    id="password"
-                    type="password"
-                    placeholder="At least 6 characters"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                    data-testid="input-password"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="confirmPassword">Confirm Password</Label>
-                  <Input
-                    id="confirmPassword"
-                    type="password"
-                    placeholder="Confirm your password"
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    required
-                    data-testid="input-confirm-password"
-                  />
-                </div>
-                <Button type="submit" className="w-full" disabled={isLoading} data-testid="button-set-password">
-                  {isLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
-                  Set Password
-                </Button>
-                <div className="text-center text-sm text-muted-foreground">
-                  <button
-                    type="button"
-                    className="text-primary hover:underline font-medium"
-                    onClick={() => setMode("login")}
-                    data-testid="link-back-to-login"
-                  >
-                    Back to sign in
                   </button>
                 </div>
               </form>

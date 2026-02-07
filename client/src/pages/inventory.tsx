@@ -158,8 +158,8 @@ export default function Inventory() {
                   </TableCell>
                   <TableCell className="text-right">{formatCurrency(product.price)}</TableCell>
                   <TableCell className="text-right">
-                    <span className={product.stockQuantity < 10 ? "text-red-500 font-bold" : ""}>
-                      {product.stockQuantity}
+                    <span className={product.stock_quantity < 10 ? "text-red-500 font-bold" : ""}>
+                      {product.stock_quantity}
                     </span>
                   </TableCell>
                   <TableCell className="text-right">
@@ -571,7 +571,7 @@ function RecordStockDialog({ open, onOpenChange, product }: { open: boolean; onO
           </DialogTitle>
         </DialogHeader>
         <div className="text-sm text-muted-foreground mb-4">
-          Current stock: <span className="font-semibold text-foreground">{product.stockQuantity}</span> units
+          Current stock: <span className="font-semibold text-foreground">{product.stock_quantity}</span> units
         </div>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
@@ -726,7 +726,7 @@ function InventoryHistoryDialog({ open, onOpenChange, product }: { open: boolean
           <div className="flex items-center gap-4 flex-wrap">
             <div>
               <div className="text-xs text-muted-foreground">Current Stock</div>
-              <div className="text-2xl font-bold">{product.stockQuantity}</div>
+              <div className="text-2xl font-bold">{product.stock_quantity}</div>
             </div>
             <div className="flex-1 flex items-end gap-2">
               <div className="flex-1">
@@ -741,7 +741,7 @@ function InventoryHistoryDialog({ open, onOpenChange, product }: { open: boolean
               <div className="text-center">
                 <div className="text-xs text-muted-foreground">Was</div>
                 <div className="text-xl font-semibold">
-                  {loadingStockAtDate ? "..." : stockAtDate?.stockQuantity ?? 0}
+                  {loadingStockAtDate ? "..." : stockAtDate?.stock_quantity ?? 0}
                 </div>
               </div>
             </div>
@@ -774,18 +774,18 @@ function InventoryHistoryDialog({ open, onOpenChange, product }: { open: boolean
                 movements?.map((m) => (
                   <TableRow key={m.id}>
                     <TableCell className="text-sm">
-                      {m.movementDate ? format(new Date(m.movementDate), "MMM dd, yyyy") : "-"}
+                      {m.movement_date ? format(new Date(m.movement_date), "MMM dd, yyyy") : "-"}
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
-                        {getMovementIcon(m.movementType, m.quantityChange)}
-                        <span className="text-sm">{formatMovementType(m.movementType)}</span>
+                        {getMovementIcon(m.movement_type, m.quantity_change)}
+                        <span className="text-sm">{formatMovementType(m.movement_type)}</span>
                       </div>
                     </TableCell>
-                    <TableCell className={cn("text-right font-mono", m.quantityChange > 0 ? "text-green-600" : "text-red-600")}>
-                      {m.quantityChange > 0 ? "+" : ""}{m.quantityChange}
+                    <TableCell className={cn("text-right font-mono", m.quantity_change > 0 ? "text-green-600" : "text-red-600")}>
+                      {m.quantity_change > 0 ? "+" : ""}{m.quantity_change}
                     </TableCell>
-                    <TableCell className="text-right font-mono">{m.balanceAfter}</TableCell>
+                    <TableCell className="text-right font-mono">{m.balance_after}</TableCell>
                     <TableCell className="text-sm text-muted-foreground max-w-[150px] truncate">
                       {m.notes || "-"}
                     </TableCell>

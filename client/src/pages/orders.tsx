@@ -138,13 +138,13 @@ export default function Orders() {
     
     // Payment status filter
     if (paymentFilter !== "all") {
-      const orderPayment = order.paymentStatus || "Credit";
+      const orderPayment = order.payment_status || "Credit";
       if (orderPayment !== paymentFilter) return false;
     }
     
     // Date range filter
     if (dateFrom || dateTo) {
-      const orderDate = new Date(order.orderDate || order.createdAt!);
+      const orderDate = new Date(order.order_date || order.created_at!);
       if (dateFrom) {
         const fromDate = new Date(dateFrom);
         fromDate.setHours(0, 0, 0, 0);
@@ -163,7 +163,7 @@ export default function Orders() {
   // KPI calculations based on filtered orders
   const kpiData = {
     totalOrders: filteredOrders.length,
-    totalRevenue: filteredOrders.reduce((sum, o) => sum + (o.totalAmount || 0), 0),
+    totalRevenue: filteredOrders.reduce((sum, o) => sum + (o.total_amount || 0), 0),
     totalUnits: filteredOrders.reduce((sum, o) => {
       const orderItems = o.items || [];
       return sum + orderItems.reduce((itemSum: number, item: any) => itemSum + (item.quantity || 0), 0);
@@ -188,7 +188,7 @@ export default function Orders() {
       }
       
       if (dateFrom || dateTo) {
-        const orderDate = new Date(o.orderDate || o.createdAt!);
+        const orderDate = new Date(o.order_date || o.created_at!);
         if (dateFrom) {
           const fromDate = new Date(dateFrom);
           fromDate.setHours(0, 0, 0, 0);
@@ -368,13 +368,13 @@ export default function Orders() {
                             </TableCell>
                             <TableCell className="font-medium">{order.customer?.name}</TableCell>
                             <TableCell className="text-muted-foreground text-sm max-w-[200px] truncate">{order.customer?.address || '-'}</TableCell>
-                            <TableCell className="text-muted-foreground text-sm">{format(new Date(order.orderDate!), 'MMM dd, yyyy')}</TableCell>
-                            <TableCell className="font-mono font-medium">{formatCurrency(order.totalAmount)}</TableCell>
+                            <TableCell className="text-muted-foreground text-sm">{format(new Date(order.order_date!), 'MMM dd, yyyy')}</TableCell>
+                            <TableCell className="font-mono font-medium">{formatCurrency(order.total_amount)}</TableCell>
                             <TableCell onClick={(e) => e.stopPropagation()}>
                               <PaymentStatusCell order={order} />
                             </TableCell>
                             <TableCell className="text-sm text-muted-foreground">
-                              {order.vatBillNumber || '-'}
+                              {order.vat_bill_number || '-'}
                             </TableCell>
                             <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                               <OrderActions order={order} onStatusUpdate={handleStatusUpdate} onEdit={setEditingOrder} />
@@ -408,7 +408,7 @@ export default function Orders() {
 function PaymentStatusCell({ order }: { order: any }) {
   const updatePaymentStatus = useUpdatePaymentStatus();
   const { toast } = useToast();
-  const paymentStatus = order.paymentStatus || "Credit";
+  const paymentStatus = order.payment_status || "Credit";
   const isCredit = paymentStatus === "Credit";
 
   const getPaymentBadgeStyle = (status: string) => {
@@ -515,11 +515,11 @@ function VatCalculationsDialog({ order, formatCurrency, open, onOpenChange }: { 
   const items = order.items || [];
 
   const vatRows = items.map((item: any) => {
-    const effectivePrice = item.unitPrice - (item.discount || 0);
+    const effectivePrice = item.unit_price - (item.discount || 0);
     const rateCents = effectivePrice / 1.13;
     const amountCents = rateCents * item.quantity;
     return {
-      name: item.product?.name || `Product #${item.productId}`,
+      name: item.product?.name || `Product #${item.product_id}`,
       quantity: item.quantity,
       rate: Math.round(rateCents),
       amount: Math.round(amountCents),
@@ -611,15 +611,15 @@ function OrderDetails({ order, formatCurrency }: { order: any; formatCurrency: (
         <div className="space-y-2">
           {items.map((item: any) => {
             const hasDiscount = item.discount > 0;
-            const effectivePrice = item.unitPrice - item.discount;
+            const effectivePrice = item.unit_price - item.discount;
             const lineTotal = effectivePrice * item.quantity;
             
             return (
               <div key={item.id} className="flex items-center justify-between p-3 bg-background rounded-lg border">
                 <div className="flex-1">
-                  <div className="font-medium">{item.product?.name || `Product #${item.productId}`}</div>
+                  <div className="font-medium">{item.product?.name || `Product #${item.product_id}`}</div>
                   <div className="text-xs text-muted-foreground">
-                    {formatCurrency(item.unitPrice)} each
+                    {formatCurrency(item.unit_price)} each
                     {hasDiscount && (
                       <span className="text-green-600 ml-2">
                         (-{formatCurrency(item.discount)} discount)
@@ -662,7 +662,7 @@ function OrderDetails({ order, formatCurrency }: { order: any; formatCurrency: (
         </button>
         <div className="text-right">
           <div className="text-sm text-muted-foreground">Total</div>
-          <div className="text-lg font-bold font-mono">{formatCurrency(order.totalAmount)}</div>
+          <div className="text-lg font-bold font-mono">{formatCurrency(order.total_amount)}</div>
         </div>
       </div>
 
@@ -682,20 +682,20 @@ function EditOrderDialog({ order, open, onOpenChange }: { order: any; open: bool
   const editOrder = useEditOrder();
   
   const [note, setNote] = useState(order?.note || "");
-  const [orderDate, setOrderDate] = useState(() => order?.orderDate ? format(new Date(order.orderDate), "yyyy-MM-dd") : format(new Date(), "yyyy-MM-dd"));
+  const [orderDate, setOrderDate] = useState(() => order?.order_date ? format(new Date(order.order_date), "yyyy-MM-dd") : format(new Date(), "yyyy-MM-dd"));
   const [items, setItems] = useState<{ id: number; productName: string; unitPrice: number; quantity: number; discountPercent: number }[]>([]);
   
   useEffect(() => {
     if (order?.items) {
       setItems(order.items.map((item: any) => ({
         id: item.id,
-        productName: item.product?.name || `Product #${item.productId}`,
-        unitPrice: item.unitPrice,
+        productName: item.product?.name || `Product #${item.product_id}`,
+        unitPrice: item.unit_price,
         quantity: item.quantity,
-        discountPercent: item.unitPrice > 0 ? Math.round((item.discount / item.unitPrice) * 100) : 0,
+        discountPercent: item.unit_price > 0 ? Math.round((item.discount / item.unit_price) * 100) : 0,
       })));
       setNote(order.note || "");
-      setOrderDate(order.orderDate ? format(new Date(order.orderDate), "yyyy-MM-dd") : format(new Date(), "yyyy-MM-dd"));
+      setOrderDate(order.order_date ? format(new Date(order.order_date), "yyyy-MM-dd") : format(new Date(), "yyyy-MM-dd"));
     }
   }, [order]);
   
@@ -1051,7 +1051,14 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
     }
     
     try {
-      await createOrder.mutateAsync({
+      console.log('[CreateOrder] Submitting order...', {
+        customerId: parseInt(customerId),
+        itemsCount: cart.length,
+        paymentStatus,
+        totalAmount: totalAmount,
+      });
+      
+      const newOrder = await createOrder.mutateAsync({
         customerId: parseInt(customerId),
         items: cart.map(item => ({ 
           productId: item.productId, 
@@ -1063,8 +1070,10 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
         orderDate: orderDate,
         vatBillNumber: includeVat && vatBillNumber.trim() ? vatBillNumber.trim() : undefined,
       });
-      toast({ title: "Order created successfully!" });
-      onOpenChange(false);
+      
+      console.log('[CreateOrder] Order created successfully:', newOrder);
+      toast({ title: "Order created successfully!", description: `Order #${newOrder.id} has been created.` });
+      
       // Reset state
       setStep(1);
       setCustomerId("");
@@ -1074,7 +1083,11 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
       setOrderDate(format(new Date(), "yyyy-MM-dd"));
       setIncludeVat(false);
       setVatBillNumber("");
+      
+      // Close dialog
+      onOpenChange(false);
     } catch (error: any) {
+      console.error('[CreateOrder] Error creating order:', error);
       toast({ title: "Failed to create order", description: error.message, variant: "destructive" });
     }
   };

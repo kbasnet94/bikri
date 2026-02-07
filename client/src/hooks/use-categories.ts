@@ -1,62 +1,72 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "@shared/routes";
-import { type InsertCategory } from "@shared/schema";
+import { supabase } from "@/lib/supabase";
+import { useAuth } from "./use-auth";
+
+export interface Category {
+  id: number;
+  business_id: string;
+  name: string;
+  description: string | null;
+}
 
 export function useCategories() {
+  const { user } = useAuth();
+  
   return useQuery({
-    queryKey: [api.categories.list.path],
+    queryKey: ['categories', user?.businessId],
     queryFn: async () => {
-      const res = await fetch(api.categories.list.path, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to fetch categories");
-      return api.categories.list.responses[200].parse(await res.json());
+      const { data, error } = await supabase
+        .from('categories')
+        .select('*')
+        .order('name');
+      
+      if (error) throw error;
+      return data as Category[];
     },
+    enabled: !!user?.businessId,
   });
 }
 
 export function useCreateCategory() {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+
   return useMutation({
-    mutationFn: async (data: InsertCategory) => {
-      const validated = api.categories.create.input.parse(data);
-      const res = await fetch(api.categories.create.path, {
-        method: api.categories.create.method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(validated),
-        credentials: "include",
-      });
-      if (!res.ok) {
-        if (res.status === 400) {
-          const error = api.categories.create.responses[400].parse(await res.json());
-          throw new Error(error.message);
-        }
-        throw new Error("Failed to create category");
-      }
-      return api.categories.create.responses[201].parse(await res.json());
+    mutationFn: async (category: { name: string; description?: string }) => {
+      if (!user?.businessId) throw new Error('No business selected');
+
+      const { data, error } = await supabase
+        .from('categories')
+        .insert({
+          ...category,
+          business_id: user.businessId,
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+      return data as Category;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [api.categories.list.path] });
+      queryClient.invalidateQueries({ queryKey: ['categories'] });
     },
   });
 }
 
 export function useDeleteCategory() {
   const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: async (id: number) => {
-      const res = await fetch(`/api/categories/${id}`, {
-        method: 'DELETE',
-        credentials: "include",
-      });
-      if (!res.ok) {
-        if (res.status === 404) {
-          throw new Error("Category not found");
-        }
-        throw new Error("Failed to delete category");
-      }
-      return res.json();
+      const { error } = await supabase
+        .from('categories')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [api.categories.list.path] });
+      queryClient.invalidateQueries({ queryKey: ['categories'] });
     },
   });
 }

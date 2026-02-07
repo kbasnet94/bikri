@@ -29,15 +29,15 @@ export default function Dashboard() {
 
   // Calculate metrics
   const completedOrders = orders?.filter(o => o.status === 'completed') || [];
-  const totalSales = completedOrders.reduce((sum, order) => sum + order.totalAmount, 0);
-  const lowStockProducts = products?.filter(p => p.stockQuantity < 10) || [];
-  const totalCreditBalance = customers?.reduce((sum, c) => sum + Math.max(0, c.currentBalance), 0) || 0;
+  const totalSales = completedOrders.reduce((sum, order) => sum + order.total_amount, 0);
+  const lowStockProducts = products?.filter(p => p.stock_quantity < 10) || [];
+  const totalCreditBalance = customers?.reduce((sum, c) => sum + Math.max(0, c.current_balance), 0) || 0;
 
   // Get available years from orders
   const availableYears = Array.from(new Set(
     completedOrders
-      .filter(o => o.orderDate)
-      .map(o => new Date(o.orderDate!).getFullYear())
+      .filter(o => o.order_date)
+      .map(o => new Date(o.order_date!).getFullYear())
   )).sort((a, b) => b - a);
   
   // Include current year if not in list
@@ -49,11 +49,11 @@ export default function Dashboard() {
   const monthlyRevenueData = MONTH_NAMES.map((month, index) => {
     const monthTotal = completedOrders
       .filter(o => {
-        if (!o.orderDate) return false;
-        const orderDate = new Date(o.orderDate);
+        if (!o.order_date) return false;
+        const orderDate = new Date(o.order_date);
         return orderDate.getMonth() === index && orderDate.getFullYear() === selectedYear;
       })
-      .reduce((sum, order) => sum + order.totalAmount, 0);
+      .reduce((sum, order) => sum + order.total_amount, 0);
     return {
       month,
       revenue: monthTotal / 100
@@ -69,8 +69,8 @@ export default function Dashboard() {
 
   const chartData = last7Days.map(date => {
     const dayTotal = completedOrders
-      .filter(o => o.orderDate && format(new Date(o.orderDate), 'yyyy-MM-dd') === date)
-      .reduce((sum, o) => sum + o.totalAmount, 0);
+      .filter(o => o.order_date && format(new Date(o.order_date), 'yyyy-MM-dd') === date)
+      .reduce((sum, o) => sum + o.total_amount, 0);
     return {
       date: format(new Date(date), 'MMM dd'),
       sales: dayTotal / 100
@@ -201,10 +201,10 @@ export default function Dashboard() {
                 <div key={order.id} className="flex items-center justify-between border-b pb-4 last:border-0 last:pb-0">
                   <div className="space-y-1">
                     <p className="text-sm font-medium leading-none">{order.customer?.name}</p>
-                    <p className="text-xs text-muted-foreground">{format(new Date(order.createdAt!), 'MMM dd, HH:mm')}</p>
+                    <p className="text-xs text-muted-foreground">{format(new Date(order.created_at!), 'MMM dd, HH:mm')}</p>
                   </div>
                   <div className="flex flex-col items-end gap-1">
-                    <span className="font-bold text-sm">{formatCurrency(order.totalAmount)}</span>
+                    <span className="font-bold text-sm">{formatCurrency(order.total_amount)}</span>
                     <span className={cn(
                       "text-[10px] px-2 py-0.5 rounded-full font-medium uppercase tracking-wider",
                       order.status === 'completed' ? "bg-green-100 text-green-700" :

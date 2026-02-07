@@ -7,8 +7,8 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { supabase } from "@/lib/supabase";
 import { Building2, Users, UserPlus, Trash2, Shield, Loader2, Coins } from "lucide-react";
 import {
   Dialog,
@@ -49,6 +49,7 @@ interface BusinessUser {
 export default function Account() {
   const { user } = useAuth();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [isAddUserOpen, setIsAddUserOpen] = useState(false);
   const [businessName, setBusinessName] = useState("");
   const [currency, setCurrency] = useState("");
@@ -73,18 +74,47 @@ export default function Account() {
   ];
 
   const { data: businessUsers, isLoading: loadingUsers } = useQuery<BusinessUser[]>({
-    queryKey: ["/api/business/users"],
+    queryKey: ['business_users', user?.businessId],
+    queryFn: async () => {
+      if (!user?.businessId) return [];
+      
+      const { data, error } = await supabase
+        .from('business_users')
+        .select('id, user_id, role, created_at')
+        .eq('business_id', user.businessId);
+      
+      if (error) throw error;
+      
+      // For now, return minimal data - we'd need to join with auth.users to get email
+      // Since we can't easily access auth.users, return what we have
+      return data?.map(bu => ({
+        id: bu.user_id,
+        email: bu.user_id, // We'll show user_id as placeholder
+        firstName: null,
+        lastName: null,
+        role: bu.role,
+        createdAt: bu.created_at,
+      })) || [];
+    },
     enabled: !!user?.businessId,
   });
 
   const updateBusinessMutation = useMutation({
     mutationFn: async (data: { name?: string; currency?: string }) => {
-      const res = await apiRequest("PUT", "/api/business", data);
-      return res.json();
+      if (!user?.businessId) throw new Error('No business ID');
+      
+      const { error } = await supabase
+        .from('businesses')
+        .update(data)
+        .eq('id', user.businessId);
+      
+      if (error) throw error;
     },
-    onSuccess: () => {
-      toast({ title: "Business updated" });
-      queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+    onSuccess: async () => {
+      toast({ title: "Business updated successfully" });
+      // Force immediate refetch of user data to get updated currency
+      await queryClient.invalidateQueries({ queryKey: ['auth', 'user'] });
+      await queryClient.refetchQueries({ queryKey: ['auth', 'user'] });
     },
     onError: (error: Error) => {
       toast({ title: "Failed to update", description: error.message, variant: "destructive" });
@@ -93,30 +123,38 @@ export default function Account() {
 
   const addUserMutation = useMutation({
     mutationFn: async (data: { email: string; firstName?: string; lastName?: string }) => {
-      const res = await apiRequest("POST", "/api/business/users", data);
-      return res.json();
+      // User management via Supabase Auth is complex
+      // For now, show a message that this feature requires manual setup
+      throw new Error('User management via Supabase Auth requires additional setup. Please add users through Supabase dashboard.');
     },
     onSuccess: () => {
-      toast({ title: "User added", description: "They can now log in using the Set Password option" });
-      queryClient.invalidateQueries({ queryKey: ["/api/business/users"] });
+      toast({ title: "User added" });
+      queryClient.invalidateQueries({ queryKey: ['business_users'] });
       setIsAddUserOpen(false);
       setNewUserEmail("");
       setNewUserFirstName("");
       setNewUserLastName("");
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to add user", description: error.message, variant: "destructive" });
+      toast({ title: "Feature not available", description: error.message, variant: "destructive" });
     },
   });
 
   const updateRoleMutation = useMutation({
     mutationFn: async ({ userId, role }: { userId: string; role: string }) => {
-      const res = await apiRequest("PATCH", `/api/business/users/${userId}/role`, { role });
-      return res.json();
+      if (!user?.businessId) throw new Error('No business ID');
+      
+      const { error } = await supabase
+        .from('business_users')
+        .update({ role })
+        .eq('business_id', user.businessId)
+        .eq('user_id', userId);
+      
+      if (error) throw error;
     },
     onSuccess: () => {
       toast({ title: "Role updated" });
-      queryClient.invalidateQueries({ queryKey: ["/api/business/users"] });
+      queryClient.invalidateQueries({ queryKey: ['business_users'] });
     },
     onError: (error: Error) => {
       toast({ title: "Failed to update role", description: error.message, variant: "destructive" });
@@ -125,11 +163,19 @@ export default function Account() {
 
   const removeUserMutation = useMutation({
     mutationFn: async (userId: string) => {
-      await apiRequest("DELETE", `/api/business/users/${userId}`);
+      if (!user?.businessId) throw new Error('No business ID');
+      
+      const { error } = await supabase
+        .from('business_users')
+        .delete()
+        .eq('business_id', user.businessId)
+        .eq('user_id', userId);
+      
+      if (error) throw error;
     },
     onSuccess: () => {
-      toast({ title: "User removed" });
-      queryClient.invalidateQueries({ queryKey: ["/api/business/users"] });
+      toast({ title: "User removed from business" });
+      queryClient.invalidateQueries({ queryKey: ['business_users'] });
     },
     onError: (error: Error) => {
       toast({ title: "Failed to remove user", description: error.message, variant: "destructive" });
@@ -206,7 +252,7 @@ export default function Account() {
                 <Input
                   id="businessName"
                   data-testid="input-business-name"
-                  placeholder={user?.business?.name || "Enter business name"}
+                  placeholder={user?.businessName || "Enter business name"}
                   value={businessName}
                   onChange={(e) => setBusinessName(e.target.value)}
                   disabled={!canManageUsers}
@@ -226,7 +272,7 @@ export default function Account() {
 
             <div className="pt-4 border-t space-y-2">
               <Label>Current Business</Label>
-              <p className="text-lg font-semibold" data-testid="text-current-business-name">{user?.business?.name}</p>
+              <p className="text-lg font-semibold" data-testid="text-current-business-name">{user?.businessName}</p>
             </div>
 
             <div className="space-y-2">
@@ -251,7 +297,7 @@ export default function Account() {
             <div className="space-y-2">
               <Label htmlFor="currency">Currency</Label>
               <Select
-                value={currency || user?.business?.currency || "USD"}
+                value={currency || user?.currency || "USD"}
                 onValueChange={handleUpdateCurrency}
                 disabled={!canManageUsers || updateBusinessMutation.isPending}
               >
@@ -276,7 +322,7 @@ export default function Account() {
             <div className="pt-4 border-t space-y-2">
               <Label>Current Currency</Label>
               <p className="text-lg font-semibold" data-testid="text-current-currency">
-                {user?.business?.currency || "USD"} - {currencies.find(c => c.code === (user?.business?.currency || "USD"))?.name || "US Dollar"}
+                {user?.currency || "USD"} - {currencies.find(c => c.code === (user?.currency || "USD"))?.name || "US Dollar"}
               </p>
             </div>
           </CardContent>

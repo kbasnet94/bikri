@@ -19,7 +19,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Search, Eye, Wallet, Calendar, DollarSign, FileText, Upload, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Plus, Search, Eye, Wallet, Calendar, DollarSign, FileText, Upload, AlertCircle, CheckCircle2, Download } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -110,20 +110,20 @@ export default function Customers() {
                     <div className="flex flex-col text-sm">
                       <span>{customer.email}</span>
                       <span className="text-muted-foreground">{customer.phone}</span>
-                      {customer.panVatNumber && (
-                        <span className="text-xs text-muted-foreground" data-testid={`text-pan-vat-${customer.id}`}>PAN/VAT: {customer.panVatNumber}</span>
+                      {customer.pan_vat_number && (
+                        <span className="text-xs text-muted-foreground" data-testid={`text-pan-vat-${customer.id}`}>PAN/VAT: {customer.pan_vat_number}</span>
                       )}
                     </div>
                   </TableCell>
-                  <TableCell className="text-right font-mono">{formatCurrencyShort(customer.creditLimit)}</TableCell>
+                  <TableCell className="text-right font-mono">{formatCurrencyShort(customer.credit_limit)}</TableCell>
                   <TableCell className="text-right">
                     <span className={cn(
                       "font-mono font-bold px-2 py-1 rounded-lg text-xs",
-                      customer.currentBalance > 0 
+                      customer.current_balance > 0 
                         ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" 
                         : "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
                     )}>
-                      {formatCurrencyShort(customer.currentBalance)}
+                      {formatCurrencyShort(customer.current_balance)}
                     </span>
                   </TableCell>
                   <TableCell className="text-right">
@@ -310,6 +310,44 @@ function CustomerDetailsDialog({ customer, open, onOpenChange }: any) {
     }
   };
 
+  const downloadLedgerCSV = () => {
+    if (!ledger || ledger.length === 0) {
+      toast({ title: "No data to export", description: "This customer has no transactions yet.", variant: "destructive" });
+      return;
+    }
+
+    // Format data for CSV with separate columns for Debit, Credit, and Adjustments
+    const csvData = ledger.map(entry => {
+      const amount = (entry.amount / 100).toFixed(2); // Convert cents to currency units
+      
+      return {
+        Date: format(new Date(entry.entry_date!), 'yyyy-MM-dd'),
+        Description: entry.description || '-',
+        Debit: (entry.type === 'debit' || entry.type === 'purchase') ? amount : '',
+        Credit: entry.type === 'credit' ? amount : '',
+        Adjustments: entry.type === 'adjustment' ? amount : '',
+      };
+    });
+
+    // Generate CSV using Papa Parse
+    const csv = Papa.unparse(csvData);
+    
+    // Create blob and download
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    
+    link.setAttribute('href', url);
+    link.setAttribute('download', `${customer.name.replace(/[^a-z0-9]/gi, '_')}_ledger_${format(new Date(), 'yyyy-MM-dd')}.csv`);
+    link.style.visibility = 'hidden';
+    
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    toast({ title: "CSV downloaded successfully" });
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl h-[80vh] flex flex-col p-0 gap-0 overflow-hidden rounded-2xl">
@@ -319,10 +357,10 @@ function CustomerDetailsDialog({ customer, open, onOpenChange }: any) {
               <h2 className="text-2xl font-display font-bold">{customer.name}</h2>
               <p className="text-muted-foreground flex items-center gap-2 mt-1">
                 <Wallet className="w-4 h-4" />
-                Balance: <span className={customer.currentBalance > 0 ? "text-red-500 font-bold" : "text-green-500 font-bold"}>
-                  {formatCurrencyShort(customer.currentBalance)}
+                Balance: <span className={customer.current_balance > 0 ? "text-red-500 font-bold" : "text-green-500 font-bold"}>
+                  {formatCurrencyShort(customer.current_balance)}
                 </span>
-                <span className="text-xs ml-2 bg-muted px-2 py-0.5 rounded-full">Limit: {formatCurrencyShort(customer.creditLimit)}</span>
+                <span className="text-xs ml-2 bg-muted px-2 py-0.5 rounded-full">Limit: {formatCurrencyShort(customer.credit_limit)}</span>
               </p>
             </div>
           </div>
@@ -349,9 +387,21 @@ function CustomerDetailsDialog({ customer, open, onOpenChange }: any) {
           <TabsContent value="ledger" className="flex-1 overflow-auto p-6 space-y-4">
             <div className="flex justify-between items-center mb-4">
               <h3 className="font-semibold text-lg">Transaction History</h3>
-              <Button size="sm" onClick={() => setIsAddingEntry(!isAddingEntry)} variant={isAddingEntry ? "secondary" : "default"}>
-                {isAddingEntry ? "Cancel" : "Add Transaction"}
-              </Button>
+              <div className="flex gap-2">
+                <Button 
+                  size="sm" 
+                  variant="outline" 
+                  onClick={downloadLedgerCSV}
+                  disabled={!ledger || ledger.length === 0}
+                  data-testid="button-download-ledger"
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  Download CSV
+                </Button>
+                <Button size="sm" onClick={() => setIsAddingEntry(!isAddingEntry)} variant={isAddingEntry ? "secondary" : "default"}>
+                  {isAddingEntry ? "Cancel" : "Add Transaction"}
+                </Button>
+              </div>
             </div>
 
             {isAddingEntry && (
@@ -422,7 +472,7 @@ function CustomerDetailsDialog({ customer, open, onOpenChange }: any) {
                 ) : (
                   ledger?.map((entry) => (
                     <TableRow key={entry.id}>
-                      <TableCell className="font-mono text-xs">{format(new Date(entry.entryDate!), 'MMM dd, yyyy')}</TableCell>
+                      <TableCell className="font-mono text-xs">{format(new Date(entry.entry_date!), 'MMM dd, yyyy')}</TableCell>
                       <TableCell>{entry.description || "-"}</TableCell>
                       <TableCell className="capitalize text-xs font-medium text-muted-foreground">{entry.type}</TableCell>
                       <TableCell className={cn(
@@ -445,7 +495,7 @@ function CustomerDetailsDialog({ customer, open, onOpenChange }: any) {
                 <div className="space-y-2">
                   <div className="flex items-center gap-2"><DollarSign className="w-4 h-4 text-muted-foreground" /> {customer.email || 'N/A'}</div>
                   <div className="flex items-center gap-2"><Calendar className="w-4 h-4 text-muted-foreground" /> {customer.phone || 'N/A'}</div>
-                  <div className="flex items-center gap-2"><FileText className="w-4 h-4 text-muted-foreground" /> PAN/VAT: {customer.panVatNumber || 'N/A'}</div>
+                  <div className="flex items-center gap-2"><FileText className="w-4 h-4 text-muted-foreground" /> PAN/VAT: {customer.pan_vat_number || 'N/A'}</div>
                 </div>
               </div>
               <div>

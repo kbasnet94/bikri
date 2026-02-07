@@ -17,7 +17,7 @@ const currencySymbols: Record<string, string> = {
 
 export function useCurrency() {
   const { user } = useAuth();
-  const currencyCode = user?.business?.currency || "USD";
+  const currencyCode = user?.currency || "USD";
   const symbol = currencySymbols[currencyCode] || "$";
 
   const formatCurrency = (amountInCents: number): string => {
