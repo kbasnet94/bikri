@@ -62,6 +62,8 @@ export function useStockAtDate(productId: number, date: string, enabled = true) 
   return useQuery({
     queryKey: ['stock-at-date', productId, date],
     queryFn: async () => {
+      console.log('[StockAtDate] Fetching stock for product', productId, 'on date', date);
+      
       // Try using the RPC function first
       const { data, error } = await supabase.rpc('get_stock_at_date', {
         p_product_id: productId,
@@ -70,6 +72,7 @@ export function useStockAtDate(productId: number, date: string, enabled = true) 
 
       // If RPC doesn't exist, calculate manually
       if (error && error.code === '42883') {
+        console.log('[StockAtDate] RPC function not found, calculating manually');
         const { data: movements } = await supabase
           .from('inventory_movements')
           .select('balance_after')
@@ -80,10 +83,16 @@ export function useStockAtDate(productId: number, date: string, enabled = true) 
           .limit(1);
 
         const stockQuantity = movements?.[0]?.balance_after ?? 0;
+        console.log('[StockAtDate] Manual calculation result:', stockQuantity);
         return { productId, date, stockQuantity };
       }
 
-      if (error) throw error;
+      if (error) {
+        console.error('[StockAtDate] RPC error:', error);
+        throw error;
+      }
+      
+      console.log('[StockAtDate] RPC result:', data);
       return { productId, date, stockQuantity: data as number };
     },
     enabled: enabled && !!productId && !!date,

@@ -741,7 +741,7 @@ function InventoryHistoryDialog({ open, onOpenChange, product }: { open: boolean
               <div className="text-center">
                 <div className="text-xs text-muted-foreground">Was</div>
                 <div className="text-xl font-semibold">
-                  {loadingStockAtDate ? "..." : stockAtDate?.stock_quantity ?? 0}
+                  {loadingStockAtDate ? "..." : stockAtDate?.stockQuantity ?? 0}
                 </div>
               </div>
             </div>

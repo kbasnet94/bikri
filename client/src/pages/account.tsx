@@ -74,7 +74,7 @@ export default function Account() {
   ];
 
   const { data: businessUsers, isLoading: loadingUsers } = useQuery<BusinessUser[]>({
-    queryKey: ['business_users', user?.businessId],
+    queryKey: ['business_users', user?.businessId, user?.id],
     queryFn: async () => {
       if (!user?.businessId) return [];
       
@@ -85,16 +85,31 @@ export default function Account() {
       
       if (error) throw error;
       
-      // For now, return minimal data - we'd need to join with auth.users to get email
-      // Since we can't easily access auth.users, return what we have
-      return data?.map(bu => ({
-        id: bu.user_id,
-        email: bu.user_id, // We'll show user_id as placeholder
-        firstName: null,
-        lastName: null,
-        role: bu.role,
-        createdAt: bu.created_at,
-      })) || [];
+      // Map users and show current user's email correctly
+      return data?.map(bu => {
+        // If this is the current user, show their actual email
+        if (bu.user_id === user?.id) {
+          return {
+            id: bu.user_id,
+            email: user.email || 'Unknown',
+            firstName: null,
+            lastName: null,
+            role: bu.role,
+            createdAt: bu.created_at,
+          };
+        }
+        
+        // For other users, show a truncated ID (since we can't access their email from client)
+        const truncatedId = bu.user_id.substring(0, 8) + '...';
+        return {
+          id: bu.user_id,
+          email: truncatedId,
+          firstName: null,
+          lastName: null,
+          role: bu.role,
+          createdAt: bu.created_at,
+        };
+      }) || [];
     },
     enabled: !!user?.businessId,
   });
@@ -426,12 +441,18 @@ export default function Account() {
                   >
                     <div className="flex-1 min-w-0">
                       <p className="font-medium truncate" data-testid={`text-user-name-${member.id}`}>
-                        {member.firstName || member.lastName
-                          ? `${member.firstName || ""} ${member.lastName || ""}`.trim()
-                          : member.email}
+                        {member.id === user?.id ? (
+                          <>
+                            {member.email} <span className="text-xs text-muted-foreground">(You)</span>
+                          </>
+                        ) : member.email.includes('...') ? (
+                          <>Team Member <span className="text-xs text-muted-foreground">({member.email})</span></>
+                        ) : (
+                          member.email
+                        )}
                       </p>
                       <p className="text-sm text-muted-foreground truncate" data-testid={`text-user-email-${member.id}`}>
-                        {member.email}
+                        {member.role ? `Role: ${member.role.charAt(0).toUpperCase()}${member.role.slice(1)}` : 'Member'}
                       </p>
                     </div>
 
