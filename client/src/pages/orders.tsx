@@ -88,10 +88,36 @@ export default function Orders() {
   const [paymentFilter, setPaymentFilter] = useState<string>("all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [selectedOrders, setSelectedOrders] = useState<Set<number>>(new Set());
   const { data: orders, isLoading } = useOrders();
   const updateStatus = useUpdateOrderStatus();
   const { toast } = useToast();
   const { formatCurrency } = useCurrency();
+
+  const toggleSelect = (orderId: number) => {
+    setSelectedOrders(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(orderId)) {
+        newSet.delete(orderId);
+      } else {
+        newSet.add(orderId);
+      }
+      return newSet;
+    });
+  };
+
+  const toggleSelectAll = (orderIds: number[]) => {
+    setSelectedOrders(prev => {
+      const allSelected = orderIds.every(id => prev.has(id));
+      if (allSelected) {
+        // Deselect all
+        return new Set();
+      } else {
+        // Select all
+        return new Set(orderIds);
+      }
+    });
+  };
 
   const toggleExpanded = (orderId: number) => {
     setExpandedOrders(prev => {
@@ -112,6 +138,29 @@ export default function Orders() {
     } catch (error: any) {
       toast({ title: "Update failed", description: error.message, variant: "destructive" });
     }
+  };
+
+  const handleBulkStatusUpdate = async (status: string) => {
+    const ids = Array.from(selectedOrders);
+    let successCount = 0;
+    let failCount = 0;
+    
+    for (const id of ids) {
+      try {
+        await updateStatus.mutateAsync({ id, status });
+        successCount++;
+      } catch {
+        failCount++;
+      }
+    }
+
+    if (successCount > 0) {
+      toast({ title: `${successCount} order(s) moved to ${getStatusLabel(status)}` });
+    }
+    if (failCount > 0) {
+      toast({ title: `${failCount} order(s) failed to update`, variant: "destructive" });
+    }
+    setSelectedOrders(new Set());
   };
 
   const clearFilters = () => {
@@ -311,7 +360,7 @@ export default function Orders() {
         )}
       </div>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+      <Tabs value={activeTab} onValueChange={(val) => { setActiveTab(val); setSelectedOrders(new Set()); }} className="w-full">
         <TabsList className="grid w-full grid-cols-5 h-auto p-1">
           {ORDER_STATUSES.map((status) => (
             <TabsTrigger 
@@ -328,12 +377,25 @@ export default function Orders() {
           ))}
         </TabsList>
 
-        {ORDER_STATUSES.map((status) => (
+        {ORDER_STATUSES.map((status) => {
+          const tabOrderIds = filteredOrders.map(o => o.id);
+          const allSelected = tabOrderIds.length > 0 && tabOrderIds.every(id => selectedOrders.has(id));
+          const someSelected = tabOrderIds.some(id => selectedOrders.has(id));
+          
+          return (
           <TabsContent key={status.value} value={status.value} className="mt-4">
             <div className="bg-card rounded-xl shadow-sm border border-border/50 overflow-hidden">
               <Table>
                 <TableHeader>
                   <TableRow className="bg-muted/30">
+                    <TableHead className="w-10" onClick={(e) => e.stopPropagation()}>
+                      <Checkbox
+                        checked={allSelected ? true : someSelected ? "indeterminate" : false}
+                        onCheckedChange={() => toggleSelectAll(tabOrderIds)}
+                        aria-label="Select all orders"
+                        data-testid="checkbox-select-all"
+                      />
+                    </TableHead>
                     <TableHead>Order ID</TableHead>
                     <TableHead>Customer</TableHead>
                     <TableHead>Address</TableHead>
@@ -341,25 +403,35 @@ export default function Orders() {
                     <TableHead>Total</TableHead>
                     <TableHead>Payment</TableHead>
                     <TableHead>VAT Bill #</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
+                    <TableHead className="text-right">Edit</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {isLoading ? (
-                    <TableRow><TableCell colSpan={8} className="h-24 text-center">Loading orders...</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={9} className="h-24 text-center">Loading orders...</TableCell></TableRow>
                   ) : filteredOrders.length === 0 ? (
-                    <TableRow><TableCell colSpan={8} className="h-24 text-center text-muted-foreground">No {status.label.toLowerCase()} orders.</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={9} className="h-24 text-center text-muted-foreground">No {status.label.toLowerCase()} orders.</TableCell></TableRow>
                   ) : (
                     filteredOrders.map((order) => {
                       const isExpanded = expandedOrders.has(order.id);
+                      const isSelected = selectedOrders.has(order.id);
+                      const canEdit = normalizeStatus(order.status) !== 'completed' && normalizeStatus(order.status) !== 'cancelled';
                       return (
                         <React.Fragment key={order.id}>
                           <TableRow 
                             key={order.id} 
-                            className="group cursor-pointer hover:bg-muted/30" 
+                            className={cn("group cursor-pointer hover:bg-muted/30", isSelected && "bg-primary/5")}
                             data-testid={`order-row-${order.id}`}
                             onClick={() => toggleExpanded(order.id)}
                           >
+                            <TableCell className="w-10" onClick={(e) => e.stopPropagation()}>
+                              <Checkbox
+                                checked={isSelected}
+                                onCheckedChange={() => toggleSelect(order.id)}
+                                aria-label={`Select order ${order.id}`}
+                                data-testid={`checkbox-order-${order.id}`}
+                              />
+                            </TableCell>
                             <TableCell className="font-mono text-xs text-muted-foreground">
                               <div className="flex items-center gap-2">
                                 {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
@@ -377,12 +449,22 @@ export default function Orders() {
                               {order.vat_bill_number || '-'}
                             </TableCell>
                             <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                              <OrderActions order={order} onStatusUpdate={handleStatusUpdate} onEdit={setEditingOrder} />
+                              {canEdit && (
+                                <Button 
+                                  size="icon" 
+                                  variant="ghost" 
+                                  className="h-8 w-8" 
+                                  onClick={(e) => { e.stopPropagation(); setEditingOrder(order); }}
+                                  data-testid={`button-edit-order-${order.id}`}
+                                >
+                                  <Pencil className="w-4 h-4" />
+                                </Button>
+                              )}
                             </TableCell>
                           </TableRow>
                           {isExpanded && (
                             <TableRow key={`${order.id}-details`} className="bg-muted/20 hover:bg-muted/20">
-                              <TableCell colSpan={8} className="p-4">
+                              <TableCell colSpan={9} className="p-4">
                                 <OrderDetails order={order} formatCurrency={formatCurrency} />
                               </TableCell>
                             </TableRow>
@@ -394,8 +476,52 @@ export default function Orders() {
                 </TableBody>
               </Table>
             </div>
+
+            {/* Bulk Action Bar */}
+            {selectedOrders.size > 0 && (
+              <div className="sticky bottom-4 mt-4 mx-auto max-w-2xl">
+                <div className="flex items-center justify-between gap-4 px-6 py-3 bg-card border border-border rounded-xl shadow-lg">
+                  <span className="text-sm font-medium whitespace-nowrap">
+                    {selectedOrders.size} order{selectedOrders.size > 1 ? 's' : ''} selected
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <Select onValueChange={(val) => handleBulkStatusUpdate(val)} disabled={updateStatus.isPending}>
+                      <SelectTrigger className="w-[160px] h-9" data-testid="select-bulk-move">
+                        <SelectValue placeholder="Move to..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {ORDER_STATUSES.filter(s => s.value !== status.value && s.value !== 'cancelled').map(s => (
+                          <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {status.value !== 'completed' && status.value !== 'cancelled' && (
+                      <Button 
+                        variant="destructive" 
+                        size="sm" 
+                        onClick={() => handleBulkStatusUpdate('cancelled')}
+                        disabled={updateStatus.isPending}
+                        data-testid="button-bulk-cancel"
+                      >
+                        <XCircle className="w-4 h-4 mr-1" />
+                        Cancel
+                      </Button>
+                    )}
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      onClick={() => setSelectedOrders(new Set())}
+                      data-testid="button-clear-selection"
+                    >
+                      Clear
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
           </TabsContent>
-        ))}
+          );
+        })}
       </Tabs>
 
       <CreateOrderDialog open={isCreateOpen} onOpenChange={setIsCreateOpen} />
@@ -459,57 +585,7 @@ function PaymentStatusCell({ order }: { order: any }) {
   );
 }
 
-function OrderActions({ order, onStatusUpdate, onEdit }: { order: any; onStatusUpdate: (id: number, status: string) => void; onEdit: (order: any) => void }) {
-  const normalizedStatus = normalizeStatus(order.status);
-  const nextStatusMap: Record<string, string> = {
-    'new': 'in-process',
-    'in-process': 'ready',
-    'ready': 'completed',
-  };
-
-  const nextStatus = nextStatusMap[normalizedStatus];
-  const canCancel = normalizedStatus !== 'completed' && normalizedStatus !== 'cancelled';
-  const canEdit = normalizedStatus !== 'completed' && normalizedStatus !== 'cancelled';
-
-  return (
-    <div className="flex justify-end gap-2">
-      {canEdit && (
-        <Button 
-          size="icon" 
-          variant="ghost" 
-          className="h-8 w-8" 
-          onClick={(e) => { e.stopPropagation(); onEdit(order); }}
-          data-testid={`button-edit-order-${order.id}`}
-        >
-          <Pencil className="w-4 h-4" />
-        </Button>
-      )}
-      {nextStatus && (
-        <Select onValueChange={(value) => onStatusUpdate(order.id, value)}>
-          <SelectTrigger className="w-[140px] h-8">
-            <SelectValue placeholder="Move to..." />
-          </SelectTrigger>
-          <SelectContent>
-            {ORDER_STATUSES.filter(s => s.value !== normalizedStatus && s.value !== 'cancelled').map(s => (
-              <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      )}
-      {canCancel && (
-        <Button 
-          size="icon" 
-          variant="ghost" 
-          className="h-8 w-8 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20" 
-          onClick={() => onStatusUpdate(order.id, 'cancelled')}
-          data-testid={`button-cancel-order-${order.id}`}
-        >
-          <XCircle className="w-4 h-4" />
-        </Button>
-      )}
-    </div>
-  );
-}
+// OrderActions component removed - replaced by bulk checkbox selection and floating action bar
 
 function VatCalculationsDialog({ order, formatCurrency, open, onOpenChange }: { order: any; formatCurrency: (cents: number) => string; open: boolean; onOpenChange: (open: boolean) => void }) {
   const items = order.items || [];
