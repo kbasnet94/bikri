@@ -6,6 +6,7 @@ export interface AuthUser {
   email: string;
   businessId?: string;
   businessName?: string;
+  panVatNumber?: string;
   role?: string;
   currency?: string;
 }
@@ -54,7 +55,8 @@ async function fetchUser(): Promise<AuthUser | null> {
         business:businesses (
           id,
           name,
-          currency
+          currency,
+          pan_vat_number
         )
       `)
       .eq('user_id', user.id)
@@ -86,6 +88,7 @@ async function fetchUser(): Promise<AuthUser | null> {
       email: user.email!,
       businessId: business?.id,
       businessName: business?.name,
+      panVatNumber: business?.pan_vat_number || undefined,
       currency: business?.currency || 'USD',
       role: businessUser.role,
     };

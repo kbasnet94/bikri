@@ -4,6 +4,7 @@ const currencySymbols: Record<string, string> = {
   USD: "$",
   EUR: "€",
   GBP: "£",
+  NPR: "NPR ",
   INR: "₹",
   AED: "د.إ",
   SAR: "﷼",

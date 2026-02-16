@@ -16,6 +16,7 @@ import Customers from "@/pages/customers";
 import Orders from "@/pages/orders";
 import Login from "@/pages/login";
 import Account from "@/pages/account";
+import SetPassword from "@/pages/set-password";
 
 // Wrapper for protected routes
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
@@ -55,6 +56,9 @@ function Router() {
     <Switch>
       <Route path="/login">
         {user ? <Redirect to="/" /> : <Login />}
+      </Route>
+      <Route path="/set-password">
+        <SetPassword />
       </Route>
       
       <Route path="/">

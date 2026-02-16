@@ -1,10 +1,13 @@
 import React, { useState, useEffect, useRef } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useOrders, useCreateOrder, useUpdateOrderStatus, useEditOrder, useUpdatePaymentStatus } from "@/hooks/use-orders";
+import { useQueryClient } from "@tanstack/react-query";
+import { useOrders, usePaginatedOrders, useOrderCounts, useOrderTabTotals, useCreateOrder, useUpdateOrderStatus, useEditOrder, useUpdatePaymentStatus, useNextVatBillNumber } from "@/hooks/use-orders";
 import { useCustomers, useCreateCustomer } from "@/hooks/use-customers";
 import { Label } from "@/components/ui/label";
 import { useProducts } from "@/hooks/use-products";
 import { useCurrency } from "@/hooks/use-currency";
+import { useAuth } from "@/hooks/use-auth";
+import { useCustomerTypes } from "@/hooks/use-customer-types";
+import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -33,7 +36,17 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, ShoppingCart, Trash2, CheckCircle, XCircle, Clock, Package, Truck, ChevronDown, ChevronRight, FileText, Pencil, Search, DollarSign, ShoppingBag, X, Receipt, Upload, AlertCircle } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Plus, ShoppingCart, Trash2, CheckCircle, XCircle, Clock, Package, Truck, ChevronDown, ChevronLeft, ChevronRight, FileText, Pencil, Search, DollarSign, ShoppingBag, X, Receipt, Upload, AlertCircle } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
@@ -54,6 +67,16 @@ type OrderStatus = typeof ORDER_STATUSES[number]["value"];
 function normalizeStatus(status: string): string {
   if (status === "pending") return "new";
   return status;
+}
+
+function normalizeUploadStatus(status: string): string {
+  const s = status.toLowerCase().trim();
+  if (s === 'complete' || s === 'completed') return 'completed';
+  if (s === 'new') return 'new';
+  if (s === 'ready' || s === 'ready for dispatch') return 'ready';
+  if (s === 'in progress' || s === 'in-process' || s === 'in process') return 'in-process';
+  if (s === 'cancelled' || s === 'canceled') return 'cancelled';
+  return 'new';
 }
 
 function getStatusBadgeStyle(status: string) {
@@ -85,14 +108,62 @@ export default function Orders() {
   const [expandedOrders, setExpandedOrders] = useState<Set<number>>(new Set());
   const [editingOrder, setEditingOrder] = useState<any>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [paymentFilter, setPaymentFilter] = useState<string>("all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [selectedOrders, setSelectedOrders] = useState<Set<number>>(new Set());
-  const { data: orders, isLoading } = useOrders();
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const PAGE_SIZE = 50;
+
   const updateStatus = useUpdateOrderStatus();
   const { toast } = useToast();
   const { formatCurrency } = useCurrency();
+
+  // Debounce search input
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchQuery), 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  // Reset page when tab or filters change
+  useEffect(() => {
+    setCurrentPage(1);
+    setSelectedOrders(new Set());
+  }, [activeTab, debouncedSearch, paymentFilter, dateFrom, dateTo]);
+
+  // Server-side paginated orders for the active tab
+  const { data: paginatedData, isLoading } = usePaginatedOrders({
+    status: activeTab,
+    page: currentPage,
+    pageSize: PAGE_SIZE,
+    search: debouncedSearch || undefined,
+    paymentFilter: paymentFilter,
+    dateFrom: dateFrom || undefined,
+    dateTo: dateTo || undefined,
+  });
+
+  // Server-side counts for all status tabs
+  const { data: orderCounts } = useOrderCounts({
+    search: debouncedSearch || undefined,
+    paymentFilter: paymentFilter,
+    dateFrom: dateFrom || undefined,
+    dateTo: dateTo || undefined,
+  });
+
+  // Server-side totals (revenue + units) for the active tab across ALL pages
+  const { data: tabTotals } = useOrderTabTotals({
+    status: activeTab,
+    search: debouncedSearch || undefined,
+    paymentFilter: paymentFilter,
+    dateFrom: dateFrom || undefined,
+    dateTo: dateTo || undefined,
+  });
+
+  const orders = paginatedData?.orders || [];
+  const totalOrders = paginatedData?.total || 0;
+  const totalPages = Math.ceil(totalOrders / PAGE_SIZE);
 
   const toggleSelect = (orderId: number) => {
     setSelectedOrders(prev => {
@@ -110,10 +181,8 @@ export default function Orders() {
     setSelectedOrders(prev => {
       const allSelected = orderIds.every(id => prev.has(id));
       if (allSelected) {
-        // Deselect all
         return new Set();
       } else {
-        // Select all
         return new Set(orderIds);
       }
     });
@@ -172,87 +241,18 @@ export default function Orders() {
 
   const hasActiveFilters = searchQuery || paymentFilter !== "all" || dateFrom || dateTo;
 
-  // Apply all filters: tab status, search, payment filter, date range
-  const filteredOrders = (orders || []).filter(order => {
-    // Tab filter (status)
-    if (normalizeStatus(order.status) !== activeTab) return false;
-    
-    // Search filter (name or phone)
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      const customerName = order.customer?.name?.toLowerCase() || "";
-      const customerPhone = order.customer?.phone?.toLowerCase() || "";
-      if (!customerName.includes(query) && !customerPhone.includes(query)) return false;
-    }
-    
-    // Payment status filter
-    if (paymentFilter !== "all") {
-      const orderPayment = order.payment_status || "Credit";
-      if (orderPayment !== paymentFilter) return false;
-    }
-    
-    // Date range filter
-    if (dateFrom || dateTo) {
-      const orderDate = new Date(order.order_date || order.created_at!);
-      if (dateFrom) {
-        const fromDate = new Date(dateFrom);
-        fromDate.setHours(0, 0, 0, 0);
-        if (orderDate < fromDate) return false;
-      }
-      if (dateTo) {
-        const toDate = new Date(dateTo);
-        toDate.setHours(23, 59, 59, 999);
-        if (orderDate > toDate) return false;
-      }
-    }
-    
-    return true;
-  });
+  const getOrderCount = (status: string) => orderCounts?.[status] ?? 0;
 
-  // KPI calculations based on filtered orders
+  // KPI calculations — totals from server across ALL pages
   const kpiData = {
-    totalOrders: filteredOrders.length,
-    totalRevenue: filteredOrders.reduce((sum, o) => sum + (o.total_amount || 0), 0),
-    totalUnits: filteredOrders.reduce((sum, o) => {
-      const orderItems = o.items || [];
-      return sum + orderItems.reduce((itemSum: number, item: any) => itemSum + (item.quantity || 0), 0);
-    }, 0),
+    totalOrders: totalOrders,
+    totalRevenue: tabTotals?.totalRevenue ?? 0,
+    totalUnits: tabTotals?.totalUnits ?? 0,
   };
 
-  const getOrderCount = (status: string) => {
-    // Apply search, payment, and date filters but not tab filter
-    return (orders || []).filter(o => {
-      if (normalizeStatus(o.status) !== status) return false;
-      
-      if (searchQuery) {
-        const query = searchQuery.toLowerCase();
-        const customerName = o.customer?.name?.toLowerCase() || "";
-        const customerPhone = o.customer?.phone?.toLowerCase() || "";
-        if (!customerName.includes(query) && !customerPhone.includes(query)) return false;
-      }
-      
-      if (paymentFilter !== "all") {
-        const orderPayment = o.paymentStatus || "Credit";
-        if (orderPayment !== paymentFilter) return false;
-      }
-      
-      if (dateFrom || dateTo) {
-        const orderDate = new Date(o.order_date || o.created_at!);
-        if (dateFrom) {
-          const fromDate = new Date(dateFrom);
-          fromDate.setHours(0, 0, 0, 0);
-          if (orderDate < fromDate) return false;
-        }
-        if (dateTo) {
-          const toDate = new Date(dateTo);
-          toDate.setHours(23, 59, 59, 999);
-          if (orderDate > toDate) return false;
-        }
-      }
-      
-      return true;
-    }).length;
-  };
+  const tabOrderIds = orders.map(o => o.id);
+  const allSelected = tabOrderIds.length > 0 && tabOrderIds.every(id => selectedOrders.has(id));
+  const someSelected = tabOrderIds.some(id => selectedOrders.has(id));
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
@@ -282,7 +282,7 @@ export default function Orders() {
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Total Orders</p>
-              <p className="text-xl font-bold" data-testid="kpi-total-orders">{kpiData.totalOrders}</p>
+              <p className="text-xl font-bold" data-testid="kpi-total-orders">{kpiData.totalOrders.toLocaleString()}</p>
             </div>
           </div>
         </Card>
@@ -304,7 +304,7 @@ export default function Orders() {
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Total Units</p>
-              <p className="text-xl font-bold" data-testid="kpi-total-units">{kpiData.totalUnits}</p>
+              <p className="text-xl font-bold" data-testid="kpi-total-units">{kpiData.totalUnits.toLocaleString()}</p>
             </div>
           </div>
         </Card>
@@ -371,18 +371,13 @@ export default function Orders() {
             >
               <span className="text-xs sm:text-sm font-medium">{status.label}</span>
               <span className="text-[10px] sm:text-xs text-muted-foreground">
-                ({getOrderCount(status.value)})
+                ({getOrderCount(status.value).toLocaleString()})
               </span>
             </TabsTrigger>
           ))}
         </TabsList>
 
-        {ORDER_STATUSES.map((status) => {
-          const tabOrderIds = filteredOrders.map(o => o.id);
-          const allSelected = tabOrderIds.length > 0 && tabOrderIds.every(id => selectedOrders.has(id));
-          const someSelected = tabOrderIds.some(id => selectedOrders.has(id));
-          
-          return (
+        {ORDER_STATUSES.map((status) => (
           <TabsContent key={status.value} value={status.value} className="mt-4">
             <div className="bg-card rounded-xl shadow-sm border border-border/50 overflow-hidden">
               <Table>
@@ -392,7 +387,7 @@ export default function Orders() {
                       <Checkbox
                         checked={allSelected ? true : someSelected ? "indeterminate" : false}
                         onCheckedChange={() => toggleSelectAll(tabOrderIds)}
-                        aria-label="Select all orders"
+                        aria-label="Select all orders on this page"
                         data-testid="checkbox-select-all"
                       />
                     </TableHead>
@@ -409,17 +404,16 @@ export default function Orders() {
                 <TableBody>
                   {isLoading ? (
                     <TableRow><TableCell colSpan={9} className="h-24 text-center">Loading orders...</TableCell></TableRow>
-                  ) : filteredOrders.length === 0 ? (
+                  ) : orders.length === 0 ? (
                     <TableRow><TableCell colSpan={9} className="h-24 text-center text-muted-foreground">No {status.label.toLowerCase()} orders.</TableCell></TableRow>
                   ) : (
-                    filteredOrders.map((order) => {
+                    orders.map((order) => {
                       const isExpanded = expandedOrders.has(order.id);
                       const isSelected = selectedOrders.has(order.id);
-                      const canEdit = normalizeStatus(order.status) !== 'completed' && normalizeStatus(order.status) !== 'cancelled';
+                      const canEdit = order.status !== 'completed' && order.status !== 'cancelled';
                       return (
                         <React.Fragment key={order.id}>
                           <TableRow 
-                            key={order.id} 
                             className={cn("group cursor-pointer hover:bg-muted/30", isSelected && "bg-primary/5")}
                             data-testid={`order-row-${order.id}`}
                             onClick={() => toggleExpanded(order.id)}
@@ -475,12 +469,46 @@ export default function Orders() {
                   )}
                 </TableBody>
               </Table>
+
+              {/* Pagination Controls */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between px-4 py-3 border-t bg-muted/10">
+                  <p className="text-sm text-muted-foreground">
+                    Showing {((currentPage - 1) * PAGE_SIZE) + 1}–{Math.min(currentPage * PAGE_SIZE, totalOrders)} of {totalOrders.toLocaleString()} orders
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={currentPage <= 1}
+                      onClick={() => setCurrentPage(p => p - 1)}
+                      data-testid="button-prev-page"
+                    >
+                      <ChevronLeft className="w-4 h-4 mr-1" />
+                      Previous
+                    </Button>
+                    <span className="text-sm font-medium px-2">
+                      Page {currentPage} of {totalPages}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={currentPage >= totalPages}
+                      onClick={() => setCurrentPage(p => p + 1)}
+                      data-testid="button-next-page"
+                    >
+                      Next
+                      <ChevronRight className="w-4 h-4 ml-1" />
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
 
-            {/* Bulk Action Bar */}
+            {/* Bulk Action Bar - fixed at bottom of viewport */}
             {selectedOrders.size > 0 && (
-              <div className="sticky bottom-4 mt-4 mx-auto max-w-2xl">
-                <div className="flex items-center justify-between gap-4 px-6 py-3 bg-card border border-border rounded-xl shadow-lg">
+              <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-full max-w-2xl px-4">
+                <div className="flex items-center justify-between gap-4 px-6 py-3 bg-primary/5 dark:bg-primary/10 border-2 border-primary/30 rounded-xl shadow-2xl backdrop-blur-sm">
                   <span className="text-sm font-medium whitespace-nowrap">
                     {selectedOrders.size} order{selectedOrders.size > 1 ? 's' : ''} selected
                   </span>
@@ -499,12 +527,12 @@ export default function Orders() {
                       <Button 
                         variant="destructive" 
                         size="sm" 
-                        onClick={() => handleBulkStatusUpdate('cancelled')}
+                        onClick={() => setShowCancelConfirm(true)}
                         disabled={updateStatus.isPending}
                         data-testid="button-bulk-cancel"
                       >
                         <XCircle className="w-4 h-4 mr-1" />
-                        Cancel
+                        Cancel order(s)
                       </Button>
                     )}
                     <Button 
@@ -519,9 +547,32 @@ export default function Orders() {
                 </div>
               </div>
             )}
+
+            {/* Cancel confirmation dialog */}
+            <AlertDialog open={showCancelConfirm} onOpenChange={setShowCancelConfirm}>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Cancel {selectedOrders.size} order{selectedOrders.size > 1 ? 's' : ''}?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will reverse inventory, create a credit ledger entry, and update the customer balance for each order. This action cannot be easily undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>No, keep orders</AlertDialogCancel>
+                  <AlertDialogAction
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    onClick={() => {
+                      handleBulkStatusUpdate('cancelled');
+                      setShowCancelConfirm(false);
+                    }}
+                  >
+                    Yes, cancel orders
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </TabsContent>
-          );
-        })}
+        ))}
       </Tabs>
 
       <CreateOrderDialog open={isCreateOpen} onOpenChange={setIsCreateOpen} />
@@ -689,21 +740,31 @@ function OrderDetails({ order, formatCurrency }: { order: any; formatCurrency: (
             const hasDiscount = item.discount > 0;
             const effectivePrice = item.unit_price - item.discount;
             const lineTotal = effectivePrice * item.quantity;
+            const variantName = item.variant?.name;
+            const imageUrl = item.variant?.image_url || item.product?.image_url;
+            const displayName = variantName
+              ? `${item.product?.name || `Product #${item.product_id}`} — ${variantName}`
+              : (item.product?.name || `Product #${item.product_id}`);
             
             return (
               <div key={item.id} className="flex items-center justify-between p-3 bg-background rounded-lg border">
-                <div className="flex-1">
-                  <div className="font-medium">{item.product?.name || `Product #${item.product_id}`}</div>
-                  <div className="text-xs text-muted-foreground">
-                    {formatCurrency(item.unit_price)} each
-                    {hasDiscount && (
-                      <span className="text-green-600 ml-2">
-                        (-{formatCurrency(item.discount)} discount)
-                      </span>
-                    )}
+                <div className="flex items-center gap-3 flex-1 min-w-0">
+                  {imageUrl && (
+                    <img src={imageUrl} alt={displayName} className="w-10 h-10 rounded object-cover border flex-shrink-0" />
+                  )}
+                  <div className="min-w-0">
+                    <div className="font-medium truncate">{displayName}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {formatCurrency(item.unit_price)} each
+                      {hasDiscount && (
+                        <span className="text-green-600 ml-2">
+                          (-{formatCurrency(item.discount)} discount)
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-4 flex-shrink-0">
                   <div className="text-sm">
                     <span className="text-muted-foreground">Qty:</span> {item.quantity}
                   </div>
@@ -736,7 +797,12 @@ function OrderDetails({ order, formatCurrency }: { order: any; formatCurrency: (
         >
           Show VAT Calculations
         </button>
-        <div className="text-right">
+        <div className="text-right space-y-0.5">
+          {order.delivery_fee > 0 && (
+            <div className="text-xs text-muted-foreground">
+              Delivery Fee: <span className="font-mono">{formatCurrency(order.delivery_fee)}</span>
+            </div>
+          )}
           <div className="text-sm text-muted-foreground">Total</div>
           <div className="text-lg font-bold font-mono">{formatCurrency(order.total_amount)}</div>
         </div>
@@ -759,17 +825,25 @@ function EditOrderDialog({ order, open, onOpenChange }: { order: any; open: bool
   
   const [note, setNote] = useState(order?.note || "");
   const [orderDate, setOrderDate] = useState(() => order?.order_date ? format(new Date(order.order_date), "yyyy-MM-dd") : format(new Date(), "yyyy-MM-dd"));
-  const [items, setItems] = useState<{ id: number; productName: string; unitPrice: number; quantity: number; discountPercent: number }[]>([]);
+  const [items, setItems] = useState<{ id: number; productName: string; imageUrl: string | null; unitPrice: number; quantity: number; discountPercent: number }[]>([]);
   
   useEffect(() => {
     if (order?.items) {
-      setItems(order.items.map((item: any) => ({
-        id: item.id,
-        productName: item.product?.name || `Product #${item.product_id}`,
-        unitPrice: item.unit_price,
-        quantity: item.quantity,
-        discountPercent: item.unit_price > 0 ? Math.round((item.discount / item.unit_price) * 100) : 0,
-      })));
+      setItems(order.items.map((item: any) => {
+        const variantName = item.variant?.name;
+        const imageUrl = item.variant?.image_url || item.product?.image_url || null;
+        const displayName = variantName
+          ? `${item.product?.name || `Product #${item.product_id}`} — ${variantName}`
+          : (item.product?.name || `Product #${item.product_id}`);
+        return {
+          id: item.id,
+          productName: displayName,
+          imageUrl,
+          unitPrice: item.unit_price,
+          quantity: item.quantity,
+          discountPercent: item.unit_price > 0 ? Math.round((item.discount / item.unit_price) * 100) : 0,
+        };
+      }));
       setNote(order.note || "");
       setOrderDate(order.order_date ? format(new Date(order.order_date), "yyyy-MM-dd") : format(new Date(), "yyyy-MM-dd"));
     }
@@ -830,7 +904,12 @@ function EditOrderDialog({ order, open, onOpenChange }: { order: any; open: bool
               return (
                 <div key={item.id} className="p-3 bg-muted/30 rounded-lg border space-y-2">
                   <div className="flex items-center justify-between">
-                    <div className="font-medium">{item.productName}</div>
+                    <div className="flex items-center gap-2">
+                      {item.imageUrl && (
+                        <img src={item.imageUrl} alt={item.productName} className="w-9 h-9 rounded object-cover border" />
+                      )}
+                      <div className="font-medium">{item.productName}</div>
+                    </div>
                     <div className="text-sm text-muted-foreground">
                       {formatCurrency(item.unitPrice)} each
                     </div>
@@ -911,6 +990,7 @@ function EditOrderDialog({ order, open, onOpenChange }: { order: any; open: bool
 
 function ProductRow({ 
   product, 
+  variant,
   isInCart, 
   cartQuantity, 
   cartDiscountPercent,
@@ -919,6 +999,7 @@ function ProductRow({
   onRemove 
 }: { 
   product: any; 
+  variant?: any;
   isInCart: boolean;
   cartQuantity: number;
   cartDiscountPercent: number;
@@ -928,21 +1009,38 @@ function ProductRow({
 }) {
   const [quantity, setQuantity] = useState(cartQuantity);
   const [discountPercent, setDiscountPercent] = useState(cartDiscountPercent);
+
+  const price = variant ? variant.price : product.price;
+  const stock = variant ? variant.stock_quantity : (product.stock_quantity ?? product.stockQuantity ?? 0);
+  const displayName = variant ? `${product.name} — ${variant.name}` : product.name;
+  const rowKey = variant ? `${product.id}-${variant.id}` : product.id;
   
-  const discountAmount = Math.round(product.price * discountPercent / 100);
-  const effectivePrice = Math.max(0, product.price - discountAmount);
+  const discountAmount = Math.round(price * discountPercent / 100);
+  const effectivePrice = Math.max(0, price - discountAmount);
   const lineTotal = effectivePrice * quantity;
   
+  const imageUrl = variant?.image_url || product.image_url || null;
+
   return (
     <div className={cn(
       "p-4 border rounded-lg transition-all",
       isInCart ? "border-primary bg-primary/5" : "hover:bg-muted/5"
     )}>
       <div className="flex items-start justify-between gap-4">
-        <div className="flex-1 min-w-0">
-          <div className="font-medium">{product.name}</div>
-          <div className="text-xs text-muted-foreground">
-            Stock: {product.stockQuantity} | Base price: {formatCurrency(product.price)}
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+          {imageUrl ? (
+            <img src={imageUrl} alt={displayName} className="w-10 h-10 rounded object-cover border flex-shrink-0" />
+          ) : (
+            <div className="w-10 h-10 rounded bg-muted flex items-center justify-center flex-shrink-0 border">
+              <Package className="w-4 h-4 text-muted-foreground" />
+            </div>
+          )}
+          <div className="min-w-0">
+            <div className="font-medium truncate">{displayName}</div>
+            <div className="text-xs text-muted-foreground">
+              Stock: {stock} | Base price: {formatCurrency(price)}
+              {variant && <span className="ml-1">| SKU: {variant.sku}</span>}
+            </div>
           </div>
         </div>
         
@@ -956,8 +1054,8 @@ function ProductRow({
                 onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value) || 1))} 
                 className="w-16 h-8 text-center no-spinners"
                 min={1}
-                max={product.stockQuantity}
-                data-testid={`input-quantity-${product.id}`}
+                max={stock}
+                data-testid={`input-quantity-${rowKey}`}
               />
             </div>
             <div className="flex flex-col items-center">
@@ -971,7 +1069,7 @@ function ProductRow({
                 max={100}
                 step={1}
                 placeholder="0"
-                data-testid={`input-discount-${product.id}`}
+                data-testid={`input-discount-${rowKey}`}
               />
             </div>
           </div>
@@ -988,7 +1086,7 @@ function ProductRow({
               size="sm" 
               variant="destructive" 
               onClick={onRemove}
-              data-testid={`button-remove-product-${product.id}`}
+              data-testid={`button-remove-product-${rowKey}`}
             >
               <Trash2 className="w-3 h-3 mr-1" />
               Remove
@@ -997,8 +1095,8 @@ function ProductRow({
             <Button 
               size="sm" 
               onClick={() => onAdd(quantity, discountPercent)} 
-              disabled={product.stockQuantity === 0}
-              data-testid={`button-add-product-${product.id}`}
+              disabled={stock === 0}
+              data-testid={`button-add-product-${rowKey}`}
             >
               <Plus className="w-3 h-3 mr-1" />
               Add
@@ -1013,7 +1111,7 @@ function ProductRow({
 function CreateOrderDialog({ open, onOpenChange }: any) {
   const [step, setStep] = useState(1);
   const [customerId, setCustomerId] = useState<string>("");
-  const [cart, setCart] = useState<{ productId: number; quantity: number; discountPercent: number; product: any }[]>([]);
+  const [cart, setCart] = useState<{ productId: number; variantId?: number; quantity: number; discountPercent: number; product: any; variant?: any }[]>([]);
   const [customerSearch, setCustomerSearch] = useState("");
   const [showNewCustomerForm, setShowNewCustomerForm] = useState(false);
   const [newCustomerName, setNewCustomerName] = useState("");
@@ -1021,34 +1119,29 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
   const [newCustomerEmail, setNewCustomerEmail] = useState("");
   const [newCustomerAddress, setNewCustomerAddress] = useState("");
   const [newCustomerPanVat, setNewCustomerPanVat] = useState("");
+  const [newCustomerTypeId, setNewCustomerTypeId] = useState<string>("");
   const [orderNote, setOrderNote] = useState("");
   const [paymentStatus, setPaymentStatus] = useState<"COD" | "Bank Transfer/QR" | "Credit" | "">("");
   const [orderDate, setOrderDate] = useState(() => format(new Date(), "yyyy-MM-dd"));
   const [includeVat, setIncludeVat] = useState(false);
   const [vatBillNumber, setVatBillNumber] = useState("");
+  const [deliveryFee, setDeliveryFee] = useState(0);
   
   const { data: customers } = useCustomers();
   const { data: products } = useProducts();
+  const { data: customerTypes } = useCustomerTypes();
   const createOrder = useCreateOrder();
   const createCustomer = useCreateCustomer();
   const { toast } = useToast();
   const { formatCurrency } = useCurrency();
 
-  const { data: nextVatData } = useQuery<{ nextBillNumber: string }>({
-    queryKey: ['/api/vat/next-bill-number'],
-    queryFn: async () => {
-      const res = await fetch('/api/vat/next-bill-number', { credentials: 'include' });
-      if (!res.ok) throw new Error('Failed to fetch next VAT bill number');
-      return res.json();
-    },
-    enabled: open && includeVat,
-  });
+  const { data: nextVatNumber } = useNextVatBillNumber();
 
   useEffect(() => {
-    if (includeVat && nextVatData?.nextBillNumber && !vatBillNumber) {
-      setVatBillNumber(nextVatData.nextBillNumber);
+    if (includeVat && nextVatNumber) {
+      setVatBillNumber(String(nextVatNumber));
     }
-  }, [includeVat, nextVatData]);
+  }, [includeVat, nextVatNumber]);
   
   const filteredCustomers = customers?.filter(c => {
     if (!customerSearch) return true;
@@ -1062,6 +1155,10 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
       toast({ title: "Customer name is required", variant: "destructive" });
       return;
     }
+    if (newCustomerPhone.trim() && !/^\d{10}$/.test(newCustomerPhone.trim())) {
+      toast({ title: "Phone number must be exactly 10 digits", variant: "destructive" });
+      return;
+    }
     try {
       const newCustomer = await createCustomer.mutateAsync({
         name: newCustomerName.trim(),
@@ -1069,6 +1166,7 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
         email: newCustomerEmail.trim() || null,
         address: newCustomerAddress.trim() || null,
         panVatNumber: newCustomerPanVat.trim() || null,
+        customerTypeId: newCustomerTypeId && newCustomerTypeId !== 'none' ? parseInt(newCustomerTypeId) : null,
       });
       setCustomerId(newCustomer.id.toString());
       setShowNewCustomerForm(false);
@@ -1077,43 +1175,73 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
       setNewCustomerEmail("");
       setNewCustomerAddress("");
       setNewCustomerPanVat("");
+      setNewCustomerTypeId("");
       toast({ title: "Customer created successfully!" });
     } catch (error: any) {
       toast({ title: "Failed to create customer", description: error.message, variant: "destructive" });
     }
   };
 
-  const addToCart = (product: any, quantity: number, discountPercent: number) => {
+  const addToCart = (product: any, quantity: number, discountPercent: number, variant?: any) => {
     if (quantity < 1) return;
-    const existing = cart.find(item => item.productId === product.id);
+    // For variant products, use a combined key
+    const cartKey = variant ? `${product.id}-${variant.id}` : `${product.id}`;
+    const existing = cart.find(item => {
+      const itemKey = item.variantId ? `${item.productId}-${item.variantId}` : `${item.productId}`;
+      return itemKey === cartKey;
+    });
     if (existing) {
-      setCart(cart.map(item => item.productId === product.id ? { ...item, quantity, discountPercent } : item));
+      setCart(cart.map(item => {
+        const itemKey = item.variantId ? `${item.productId}-${item.variantId}` : `${item.productId}`;
+        return itemKey === cartKey ? { ...item, quantity, discountPercent } : item;
+      }));
     } else {
-      setCart([...cart, { productId: product.id, quantity, discountPercent, product }]);
+      setCart([...cart, {
+        productId: product.id,
+        variantId: variant?.id,
+        quantity,
+        discountPercent,
+        product,
+        variant,
+      }]);
     }
   };
 
-  const removeFromCart = (productId: number) => {
-    setCart(cart.filter(item => item.productId !== productId));
+  const removeFromCart = (productId: number, variantId?: number) => {
+    setCart(cart.filter(item => !(item.productId === productId && item.variantId === variantId)));
   };
 
-  const updateQuantity = (productId: number, qty: number) => {
+  const updateQuantity = (productId: number, qty: number, variantId?: number) => {
     if (qty < 1) return;
-    setCart(cart.map(item => item.productId === productId ? { ...item, quantity: qty } : item));
+    setCart(cart.map(item => (item.productId === productId && item.variantId === variantId) ? { ...item, quantity: qty } : item));
   };
 
-  const updateDiscountPercent = (productId: number, discountPercent: number) => {
+  const updateDiscountPercent = (productId: number, discountPercent: number, variantId?: number) => {
     if (discountPercent < 0 || discountPercent > 100) return;
-    setCart(cart.map(item => item.productId === productId ? { ...item, discountPercent } : item));
+    setCart(cart.map(item => (item.productId === productId && item.variantId === variantId) ? { ...item, discountPercent } : item));
   };
 
-  const totalAmount = cart.reduce((sum, item) => {
-    const discountAmount = Math.round(item.product.price * item.discountPercent / 100);
-    const effectivePrice = Math.max(0, item.product.price - discountAmount);
+  const getItemPrice = (item: typeof cart[0]) => {
+    if (item.variant) return item.variant.price;
+    return item.product.price;
+  };
+
+  const getItemStock = (item: typeof cart[0]) => {
+    if (item.variant) return item.variant.stock_quantity;
+    return item.product.stock_quantity;
+  };
+
+  const subtotal = cart.reduce((sum, item) => {
+    const price = getItemPrice(item);
+    const discountAmount = Math.round(price * item.discountPercent / 100);
+    const effectivePrice = Math.max(0, price - discountAmount);
     return sum + (effectivePrice * item.quantity);
   }, 0);
 
-  const hasStockIssue = cart.some(item => item.quantity > item.product.stockQuantity);
+  const deliveryFeeInCents = Math.round(deliveryFee * 100);
+  const totalAmount = subtotal + deliveryFeeInCents;
+
+  const hasStockIssue = cart.some(item => item.quantity > getItemStock(item));
 
   const handleSubmit = async () => {
     if (!customerId || cart.length === 0) return;
@@ -1138,6 +1266,7 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
         customerId: parseInt(customerId),
         items: cart.map(item => ({ 
           productId: item.productId, 
+          variantId: item.variantId,
           quantity: item.quantity,
           discountPercent: item.discountPercent > 0 ? item.discountPercent : undefined
         })),
@@ -1145,6 +1274,7 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
         paymentStatus: paymentStatus as "COD" | "Bank Transfer/QR" | "Credit",
         orderDate: orderDate,
         vatBillNumber: includeVat && vatBillNumber.trim() ? vatBillNumber.trim() : undefined,
+        deliveryFee: deliveryFeeInCents > 0 ? deliveryFeeInCents : undefined,
       });
       
       console.log('[CreateOrder] Order created successfully:', newOrder);
@@ -1159,6 +1289,7 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
       setOrderDate(format(new Date(), "yyyy-MM-dd"));
       setIncludeVat(false);
       setVatBillNumber("");
+      setDeliveryFee(0);
       
       // Close dialog
       onOpenChange(false);
@@ -1218,9 +1349,10 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
                           <Label htmlFor="new-customer-phone" className="text-xs">Phone</Label>
                           <Input 
                             id="new-customer-phone"
-                            placeholder="Phone number" 
+                            placeholder="98XXXXXXXX" 
+                            maxLength={10}
                             value={newCustomerPhone}
-                            onChange={(e) => setNewCustomerPhone(e.target.value)}
+                            onChange={(e) => setNewCustomerPhone(e.target.value.replace(/[^0-9]/g, ''))}
                             data-testid="input-new-customer-phone"
                           />
                         </div>
@@ -1257,6 +1389,22 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
                         />
                       </div>
                     </div>
+                    {(customerTypes || []).length > 0 && (
+                      <div>
+                        <Label className="text-xs">Customer Type</Label>
+                        <Select value={newCustomerTypeId} onValueChange={setNewCustomerTypeId}>
+                          <SelectTrigger className="h-9" data-testid="select-new-customer-type">
+                            <SelectValue placeholder="Select type (optional)" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">None</SelectItem>
+                            {customerTypes!.map(t => (
+                              <SelectItem key={t.id} value={String(t.id)}>{t.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
                     <Button 
                       size="sm" 
                       onClick={handleCreateCustomer}
@@ -1312,20 +1460,41 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
               
               <div className="grid grid-cols-1 gap-3">
                 {products?.map(p => {
-                  const cartItem = cart.find(item => item.productId === p.id);
-                  const isInCart = !!cartItem;
-                  return (
-                    <ProductRow 
-                      key={p.id} 
-                      product={p} 
-                      isInCart={isInCart}
-                      cartQuantity={cartItem?.quantity || 1}
-                      cartDiscountPercent={cartItem?.discountPercent || 0}
-                      formatCurrency={formatCurrency}
-                      onAdd={(qty, discountPercent) => addToCart(p, qty, discountPercent)}
-                      onRemove={() => removeFromCart(p.id)}
-                    />
-                  );
+                  if (p.has_variants && p.variants && p.variants.length > 0) {
+                    // Render a row per variant
+                    return p.variants.map(v => {
+                      const cartItem = cart.find(item => item.productId === p.id && item.variantId === v.id);
+                      const isInCart = !!cartItem;
+                      return (
+                        <ProductRow 
+                          key={`${p.id}-${v.id}`} 
+                          product={p} 
+                          variant={v}
+                          isInCart={isInCart}
+                          cartQuantity={cartItem?.quantity || 1}
+                          cartDiscountPercent={cartItem?.discountPercent || 0}
+                          formatCurrency={formatCurrency}
+                          onAdd={(qty, discountPercent) => addToCart(p, qty, discountPercent, v)}
+                          onRemove={() => removeFromCart(p.id, v.id)}
+                        />
+                      );
+                    });
+                  } else {
+                    const cartItem = cart.find(item => item.productId === p.id && !item.variantId);
+                    const isInCart = !!cartItem;
+                    return (
+                      <ProductRow 
+                        key={p.id} 
+                        product={p} 
+                        isInCart={isInCart}
+                        cartQuantity={cartItem?.quantity || 1}
+                        cartDiscountPercent={cartItem?.discountPercent || 0}
+                        formatCurrency={formatCurrency}
+                        onAdd={(qty, discountPercent) => addToCart(p, qty, discountPercent)}
+                        onRemove={() => removeFromCart(p.id)}
+                      />
+                    );
+                  }
                 })}
               </div>
             </div>
@@ -1337,28 +1506,38 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
               
               <div className="space-y-3">
                 {cart.map(item => {
-                  const discountAmount = Math.round(item.product.price * item.discountPercent / 100);
-                  const effectivePrice = Math.max(0, item.product.price - discountAmount);
+                  const price = getItemPrice(item);
+                  const stock = getItemStock(item);
+                  const discountAmount = Math.round(price * item.discountPercent / 100);
+                  const effectivePrice = Math.max(0, price - discountAmount);
                   const lineTotal = effectivePrice * item.quantity;
-                  const exceedsStock = item.quantity > item.product.stockQuantity;
+                  const exceedsStock = item.quantity > stock;
+                  const cartKey = item.variantId ? `${item.productId}-${item.variantId}` : `${item.productId}`;
+                  const displayName = item.variant ? `${item.product.name} — ${item.variant.name}` : item.product.name;
+                  const reviewImageUrl = item.variant?.image_url || item.product?.image_url || null;
                   return (
-                    <div key={item.productId} className={cn(
+                    <div key={cartKey} className={cn(
                       "flex items-center justify-between p-3 rounded-lg",
                       exceedsStock ? "bg-red-500/10 border border-red-500/30" : "bg-muted/20"
                     )}>
-                      <div className="flex-1">
-                        <div className="font-medium">{item.product.name}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {formatCurrency(item.product.price)} each
-                          {item.discountPercent > 0 && (
-                            <span className="text-green-600 ml-2">(-{item.discountPercent}% = {formatCurrency(discountAmount)} off)</span>
+                      <div className="flex items-center gap-3 flex-1 min-w-0">
+                        {reviewImageUrl && (
+                          <img src={reviewImageUrl} alt={displayName} className="w-9 h-9 rounded object-cover border flex-shrink-0" />
+                        )}
+                        <div className="min-w-0">
+                          <div className="font-medium truncate">{displayName}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {formatCurrency(price)} each
+                            {item.discountPercent > 0 && (
+                              <span className="text-green-600 ml-2">(-{item.discountPercent}% = {formatCurrency(discountAmount)} off)</span>
+                            )}
+                          </div>
+                          {exceedsStock && (
+                            <div className="text-xs text-red-500 mt-1">
+                              Only {stock} in stock
+                            </div>
                           )}
                         </div>
-                        {exceedsStock && (
-                          <div className="text-xs text-red-500 mt-1">
-                            Only {item.product.stockQuantity} in stock
-                          </div>
-                        )}
                       </div>
                       <div className="flex items-center gap-3">
                         <div className="flex flex-col items-center">
@@ -1366,7 +1545,7 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
                           <Input 
                             type="number" 
                             value={item.quantity} 
-                            onChange={(e) => updateQuantity(item.productId, parseInt(e.target.value) || 1)} 
+                            onChange={(e) => updateQuantity(item.productId, parseInt(e.target.value) || 1, item.variantId)} 
                             className="w-16 h-8 text-center no-spinners"
                             min={1}
                           />
@@ -1376,7 +1555,7 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
                           <Input 
                             type="number" 
                             value={item.discountPercent} 
-                            onChange={(e) => updateDiscountPercent(item.productId, Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)))} 
+                            onChange={(e) => updateDiscountPercent(item.productId, Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)), item.variantId)} 
                             className="w-16 h-8 text-center no-spinners"
                             min={0}
                             max={100}
@@ -1386,7 +1565,7 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
                         <div className="font-mono font-medium w-20 text-right">
                           {formatCurrency(lineTotal)}
                         </div>
-                        <Button size="icon" variant="ghost" className="h-8 w-8 text-red-500 hover:text-red-700" onClick={() => removeFromCart(item.productId)}>
+                        <Button size="icon" variant="ghost" className="h-8 w-8 text-red-500 hover:text-red-700" onClick={() => removeFromCart(item.productId, item.variantId)}>
                           <Trash2 className="w-4 h-4" />
                         </Button>
                       </div>
@@ -1463,30 +1642,57 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
                 )}
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="order-date" className="text-sm">Order Date</Label>
-                <Input 
-                  id="order-date"
-                  type="date"
-                  value={orderDate}
-                  onChange={(e) => setOrderDate(e.target.value)}
-                  className="w-full"
-                  data-testid="input-order-date"
-                />
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="order-date" className="text-sm">Order Date</Label>
+                  <Input 
+                    id="order-date"
+                    type="date"
+                    value={orderDate}
+                    onChange={(e) => setOrderDate(e.target.value)}
+                    className="w-full"
+                    data-testid="input-order-date"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="delivery-fee" className="text-sm">Delivery Fee</Label>
+                  <Input 
+                    id="delivery-fee"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder="0.00"
+                    value={deliveryFee || ''}
+                    onChange={(e) => setDeliveryFee(parseFloat(e.target.value) || 0)}
+                    className="w-full"
+                    data-testid="input-delivery-fee"
+                  />
+                </div>
               </div>
 
-              <div className="border-t pt-4">
+              <div className="border-t pt-4 space-y-1">
                 {cart.some(item => item.discountPercent > 0) && (
-                  <div className="flex justify-between items-center text-sm text-green-600 mb-2">
+                  <div className="flex justify-between items-center text-sm text-green-600">
                     <div>Total Discounts</div>
                     <div className="font-mono">-{formatCurrency(cart.reduce((sum, item) => {
-                      const discountAmount = Math.round(item.product.price * item.discountPercent / 100);
+                      const price = getItemPrice(item);
+                      const discountAmount = Math.round(price * item.discountPercent / 100);
                       return sum + (discountAmount * item.quantity);
                     }, 0))}</div>
                   </div>
                 )}
-                <div className="flex justify-between items-center">
-                  <div className="text-muted-foreground">Total Amount</div>
+                <div className="flex justify-between items-center text-sm">
+                  <div className="text-muted-foreground">Subtotal</div>
+                  <div className="font-mono">{formatCurrency(subtotal)}</div>
+                </div>
+                {deliveryFeeInCents > 0 && (
+                  <div className="flex justify-between items-center text-sm">
+                    <div className="text-muted-foreground">Delivery Fee</div>
+                    <div className="font-mono">{formatCurrency(deliveryFeeInCents)}</div>
+                  </div>
+                )}
+                <div className="flex justify-between items-center pt-1 border-t">
+                  <div className="font-medium">Total Amount</div>
                   <div className="text-2xl font-bold font-mono">{formatCurrency(totalAmount)}</div>
                 </div>
               </div>
@@ -1516,6 +1722,7 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
 function BulkOrderUploadDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const orderFileRef = useRef<HTMLInputElement>(null);
   const itemFileRef = useRef<HTMLInputElement>(null);
   const [orderRows, setOrderRows] = useState<any[]>([]);
@@ -1524,10 +1731,11 @@ function BulkOrderUploadDialog({ open, onOpenChange }: { open: boolean; onOpenCh
   const [itemFileName, setItemFileName] = useState("");
   const [isUploading, setIsUploading] = useState(false);
   const { data: customers } = useCustomers();
+  const { data: products } = useProducts();
   const { symbol } = useCurrency();
 
-  const orderHeaders = ['orderRef', 'customerRefID', 'status', 'paymentStatus', 'note', 'vatBillNumber', 'orderDate'];
-  const itemHeaders = ['orderRef', 'productSKU', 'quantity', 'unitPrice', 'discountPercent'];
+  const orderHeaders = ['orderRef', 'customerRefID', 'status', 'paymentStatus', 'note', 'vatBillNumber', 'orderDate', 'deliveryFee'];
+  const itemHeaders = ['orderRef', 'productSKU', 'quantity', 'unitPrice', 'discountPercent', 'variantName'];
 
   const handleOrderFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1554,29 +1762,259 @@ function BulkOrderUploadDialog({ open, onOpenChange }: { open: boolean; onOpenCh
   };
 
   const handleUpload = async () => {
-    if (orderRows.length === 0 || itemRows.length === 0) return;
+    if (orderRows.length === 0 || itemRows.length === 0 || !user?.businessId) return;
     setIsUploading(true);
+
+    const errors: string[] = [];
+    let created = 0;
+
     try {
-      const res = await fetch('/api/bulk/orders', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orders: orderRows, items: itemRows }),
-        credentials: 'include',
+      // Build product lookup by SKU (including variant SKUs)
+      const productBySku: Record<string, any> = {};
+      const variantBySku: Record<string, any> = {};
+      (products || []).forEach((p: any) => {
+        if (p.sku) productBySku[p.sku.trim().toLowerCase()] = p;
+        // Also index variant SKUs
+        if (p.has_variants && p.variants) {
+          for (const v of p.variants) {
+            if (v.sku) variantBySku[v.sku.trim().toLowerCase()] = { product: p, variant: v };
+          }
+        }
       });
-      const data = await res.json();
-      if (!res.ok) {
-        const errorCount = data.errors?.length || 0;
-        const firstErrors = (data.errors || []).slice(0, 5).map((e: any) => 
-          `${e.file ? `[${e.file}] ` : ''}${e.row > 0 ? `Row ${e.row}: ` : ''}${e.message}`
-        ).join('\n');
-        toast({ title: `${errorCount} error(s) found`, description: firstErrors, variant: "destructive" });
-        return;
+
+      for (let i = 0; i < orderRows.length; i++) {
+        const row = orderRows[i];
+        const orderRef = row.orderRef?.trim();
+        const customerId = parseInt(row.customerRefID);
+        const status = normalizeUploadStatus(row.status?.trim() || 'new');
+        const paymentStatus = row.paymentStatus?.trim() || 'Credit';
+        const note = row.note?.trim() || null;
+        const vatBillNumber = row.vatBillNumber?.trim() || null;
+        const orderDate = row.orderDate?.trim() || new Date().toISOString();
+        const deliveryFee = Math.round(parseFloat(row.deliveryFee || '0') * 100);
+
+        if (!orderRef) { errors.push(`Order row ${i + 1}: missing orderRef`); continue; }
+        if (isNaN(customerId)) { errors.push(`Order row ${i + 1}: invalid customerRefID`); continue; }
+
+        // Find matching items for this order
+        const matchingItems = itemRows.filter(ir => ir.orderRef?.trim() === orderRef);
+        if (matchingItems.length === 0) { errors.push(`Order "${orderRef}": no items found`); continue; }
+
+        // Resolve products/variants and calculate total
+        let totalAmount = 0;
+        const orderItemsData: { product_id: number; variant_id: number | null; quantity: number; unit_price: number; discount: number }[] = [];
+        const stockUpdates: { productId: number; variantId: number | null; quantity: number; currentStock: number }[] = [];
+        let itemError = false;
+
+        for (const item of matchingItems) {
+          const sku = item.productSKU?.trim().toLowerCase();
+          const variantName = item.variantName?.trim();
+          let product: any = null;
+          let variant: any = null;
+
+          if (sku) {
+            // First check if SKU matches a variant directly
+            if (variantBySku[sku]) {
+              product = variantBySku[sku].product;
+              variant = variantBySku[sku].variant;
+            } else if (productBySku[sku]) {
+              product = productBySku[sku];
+              // If product has variants and variantName is provided, find the variant
+              if (product.has_variants && product.variants && variantName) {
+                variant = product.variants.find((v: any) => v.name.toLowerCase() === variantName.toLowerCase());
+                if (!variant) {
+                  errors.push(`Order "${orderRef}": variant "${variantName}" not found for product SKU "${item.productSKU}"`);
+                  itemError = true; break;
+                }
+              }
+            }
+          }
+
+          if (!product) { errors.push(`Order "${orderRef}": product SKU "${item.productSKU}" not found`); itemError = true; break; }
+
+          const quantity = parseInt(item.quantity) || 0;
+          const unitPriceCents = Math.round(parseFloat(item.unitPrice || '0') * 100);
+          const discountPercent = parseFloat(item.discountPercent || '0');
+          const discountAmount = Math.floor(unitPriceCents * (discountPercent / 100));
+          const effectivePrice = unitPriceCents - discountAmount;
+
+          if (quantity <= 0) { errors.push(`Order "${orderRef}": invalid quantity for SKU "${item.productSKU}"`); itemError = true; break; }
+
+          totalAmount += effectivePrice * quantity;
+          orderItemsData.push({
+            product_id: product.id,
+            variant_id: variant ? variant.id : null,
+            quantity,
+            unit_price: unitPriceCents,
+            discount: discountAmount,
+          });
+          stockUpdates.push({
+            productId: product.id,
+            variantId: variant ? variant.id : null,
+            quantity,
+            currentStock: variant ? variant.stock_quantity : product.stock_quantity,
+          });
+        }
+
+        if (itemError) continue;
+
+        // Add delivery fee to total
+        totalAmount += deliveryFee;
+
+        try {
+          // 1. Create order
+          const { data: order, error: orderError } = await supabase
+            .from('orders')
+            .insert({
+              business_id: user.businessId,
+              customer_id: customerId,
+              status,
+              payment_status: paymentStatus,
+              total_amount: totalAmount,
+              delivery_fee: deliveryFee,
+              note,
+              vat_bill_number: vatBillNumber,
+              order_date: orderDate,
+            })
+            .select()
+            .single();
+
+          if (orderError) { errors.push(`Order "${orderRef}": ${orderError.message}`); continue; }
+
+          // 2. Create order items
+          const { error: itemsError } = await supabase
+            .from('order_items')
+            .insert(orderItemsData.map(item => ({ ...item, order_id: order.id })));
+
+          if (itemsError) { errors.push(`Order "${orderRef}" items: ${itemsError.message}`); continue; }
+
+          // 3. Update stock & create inventory movements
+          // Read live stock from DB for each item to avoid stale-cache overwrites
+          for (const su of stockUpdates) {
+            let currentStock: number;
+
+            if (su.variantId) {
+              const { data: liveVariant } = await supabase
+                .from('product_variants')
+                .select('stock_quantity')
+                .eq('id', su.variantId)
+                .single();
+              currentStock = liveVariant?.stock_quantity ?? 0;
+            } else {
+              const { data: liveProduct } = await supabase
+                .from('products')
+                .select('stock_quantity')
+                .eq('id', su.productId)
+                .single();
+              currentStock = liveProduct?.stock_quantity ?? 0;
+            }
+
+            const newStock = currentStock - su.quantity;
+
+            if (su.variantId) {
+              await supabase
+                .from('product_variants')
+                .update({ stock_quantity: newStock })
+                .eq('id', su.variantId);
+            } else {
+              await supabase
+                .from('products')
+                .update({ stock_quantity: newStock })
+                .eq('id', su.productId);
+            }
+
+            await supabase
+              .from('inventory_movements')
+              .insert({
+                business_id: user.businessId,
+                product_id: su.productId,
+                variant_id: su.variantId || null,
+                movement_type: 'sale',
+                quantity_change: -su.quantity,
+                balance_after: newStock,
+                order_id: order.id,
+                notes: `Sale from order #${order.id}`,
+                movement_date: orderDate,
+              });
+          }
+
+          // 4. Create purchase ledger entry (debit)
+          let ledgerDesc = `Order #${order.id} - ${paymentStatus}`;
+          if (vatBillNumber) ledgerDesc += ` | VAT #${vatBillNumber}`;
+          if (deliveryFee > 0) ledgerDesc += ` (incl. delivery fee ${(deliveryFee / 100).toFixed(2)})`;
+
+          await supabase
+            .from('ledger_entries')
+            .insert({
+              business_id: user.businessId,
+              customer_id: customerId,
+              order_id: order.id,
+              type: 'purchase',
+              amount: totalAmount,
+              description: ledgerDesc,
+              entry_date: orderDate,
+            });
+
+          // 5. For COD and Bank Transfer: auto-create payment ledger entry (deposit)
+          if (paymentStatus === 'COD' || paymentStatus === 'Bank Transfer/QR') {
+            await supabase
+              .from('ledger_entries')
+              .insert({
+                business_id: user.businessId,
+                customer_id: customerId,
+                order_id: order.id,
+                type: 'payment',
+                amount: totalAmount,
+                description: `Payment received - Order #${order.id} (${paymentStatus})`,
+                entry_date: orderDate,
+              });
+          }
+
+          // 6. Update customer balance (only for Credit orders)
+          if (paymentStatus === 'Credit') {
+            const { data: customer } = await supabase
+              .from('customers')
+              .select('current_balance')
+              .eq('id', customerId)
+              .single();
+
+            if (customer) {
+              await supabase
+                .from('customers')
+                .update({ current_balance: customer.current_balance + totalAmount })
+                .eq('id', customerId);
+            }
+          }
+
+          created++;
+        } catch (err: any) {
+          errors.push(`Order "${orderRef}": ${err.message}`);
+        }
       }
-      toast({ title: `${data.created} order(s) created successfully. Inventory and ledger updated.` });
-      queryClient.invalidateQueries({ queryKey: [api.orders.list.path] });
-      queryClient.invalidateQueries({ queryKey: [api.products.list.path] });
-      queryClient.invalidateQueries({ queryKey: [api.customers.list.path] });
-      resetAndClose();
+
+      // Report results
+      if (created > 0) {
+        toast({ title: `${created} order(s) created successfully. Inventory and ledger updated.` });
+      }
+      if (errors.length > 0) {
+        toast({
+          title: `${errors.length} error(s)`,
+          description: errors.slice(0, 5).join('\n'),
+          variant: "destructive",
+        });
+      }
+
+      // Invalidate all relevant caches
+      queryClient.invalidateQueries({ queryKey: ['orders'] });
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      queryClient.invalidateQueries({ queryKey: ['inventory'] });
+      queryClient.invalidateQueries({ queryKey: ['vat'] });
+      queryClient.invalidateQueries({ queryKey: ['product-variants'] });
+
+      if (created > 0 && errors.length === 0) {
+        resetAndClose();
+      }
     } catch (err: any) {
       toast({ title: "Upload failed", description: err.message, variant: "destructive" });
     } finally {
@@ -1615,6 +2053,7 @@ function BulkOrderUploadDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                   <strong> paymentStatus</strong>: COD, Bank Transfer/QR, Credit.
                   <strong> orderDate</strong>: YYYY-MM-DD.
                   <strong> vatBillNumber</strong>: numeric only.
+                  <strong> deliveryFee</strong>: in currency units (e.g. 100 = {symbol}100). Optional, defaults to 0.
                 </p>
               </div>
               <Input
@@ -1658,9 +2097,10 @@ function BulkOrderUploadDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                 </code>
                 <p className="text-muted-foreground text-xs mt-1">
                   <strong>orderRef</strong> must match an orderRef from the Orders CSV.
-                  <strong> productSKU</strong> = product's SKU code.
+                  <strong> productSKU</strong> = product or variant SKU code. If a variant SKU is used, the variant is resolved automatically.
                   <strong> unitPrice</strong> in currency units (e.g. 1950 = {symbol}1,950).
                   <strong> discountPercent</strong>: 0-100 (e.g. 50 = 50% off).
+                  <strong> variantName</strong>: optional — use if product has variants and you're matching by product SKU (e.g. "Small", "Large").
                 </p>
               </div>
               <Input
@@ -1700,8 +2140,9 @@ function BulkOrderUploadDialog({ open, onOpenChange }: { open: boolean; onOpenCh
           <div className="flex items-center gap-2 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
             <AlertCircle className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
             <p className="text-xs text-blue-700 dark:text-blue-300">
-              Uploading orders will automatically update inventory (stock decreases) and create ledger entries. 
-              Credit orders will increase customer balances. COD/Bank Transfer orders will auto-record payments.
+              Uploading orders will automatically update inventory (stock decreases) and create ledger entries.
+              <strong>Credit</strong> orders will increase customer balances (no payment recorded).
+              <strong>COD</strong> and <strong>Bank Transfer/QR</strong> orders will auto-record a payment entry (balance unchanged).
             </p>
           </div>
 

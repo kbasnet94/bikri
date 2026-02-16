@@ -9,7 +9,14 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
-import { Building2, Users, UserPlus, Trash2, Shield, Loader2, Coins } from "lucide-react";
+import { Building2, Users, UserPlus, Trash2, Shield, Loader2, Coins, Calendar, Tags, Plus, X } from "lucide-react";
+import { useCustomerTypes, useCreateCustomerType, useDeleteCustomerType } from "@/hooks/use-customer-types";
+import {
+  getCurrentFiscalYear,
+  getFiscalYearLabel,
+  getFiscalYearGregorianLabel,
+  getDaysRemainingInFiscalYear,
+} from "@/lib/fiscal-year";
 import {
   Dialog,
   DialogContent,
@@ -52,6 +59,7 @@ export default function Account() {
   const queryClient = useQueryClient();
   const [isAddUserOpen, setIsAddUserOpen] = useState(false);
   const [businessName, setBusinessName] = useState("");
+  const [panVatNumber, setPanVatNumber] = useState("");
   const [currency, setCurrency] = useState("");
   const [newUserEmail, setNewUserEmail] = useState("");
   const [newUserFirstName, setNewUserFirstName] = useState("");
@@ -62,6 +70,7 @@ export default function Account() {
     { code: "USD", name: "US Dollar" },
     { code: "EUR", name: "Euro" },
     { code: "GBP", name: "British Pound" },
+    { code: "NPR", name: "Nepali Rupee" },
     { code: "INR", name: "Indian Rupee" },
     { code: "AED", name: "UAE Dirham" },
     { code: "SAR", name: "Saudi Riyal" },
@@ -115,7 +124,7 @@ export default function Account() {
   });
 
   const updateBusinessMutation = useMutation({
-    mutationFn: async (data: { name?: string; currency?: string }) => {
+    mutationFn: async (data: { name?: string; currency?: string; pan_vat_number?: string }) => {
       if (!user?.businessId) throw new Error('No business ID');
       
       const { error } = await supabase
@@ -138,12 +147,56 @@ export default function Account() {
 
   const addUserMutation = useMutation({
     mutationFn: async (data: { email: string; firstName?: string; lastName?: string }) => {
-      // User management via Supabase Auth is complex
-      // For now, show a message that this feature requires manual setup
-      throw new Error('User management via Supabase Auth requires additional setup. Please add users through Supabase dashboard.');
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error('Not authenticated');
+
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+      console.log('[Invite] Calling Edge Function...', {
+        url: `${supabaseUrl}/functions/v1/invite-team-member`,
+        email: data.email,
+        businessId: user?.businessId,
+      });
+
+      const res = await fetch(
+        `${supabaseUrl}/functions/v1/invite-team-member`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`,
+            'apikey': anonKey,
+          },
+          body: JSON.stringify({
+            email: data.email,
+            businessId: user?.businessId,
+            role: 'member',
+          }),
+        }
+      );
+
+      const responseText = await res.text();
+      console.log('[Invite] Response:', res.status, responseText);
+
+      if (!res.ok) {
+        let errorMessage = `HTTP ${res.status}`;
+        try {
+          const parsed = JSON.parse(responseText);
+          errorMessage = parsed.error || parsed.message || errorMessage;
+        } catch {
+          errorMessage = responseText || errorMessage;
+        }
+        throw new Error(errorMessage);
+      }
+
+      return JSON.parse(responseText);
     },
-    onSuccess: () => {
-      toast({ title: "User added" });
+    onSuccess: (data) => {
+      toast({
+        title: "Invitation sent",
+        description: data.message || "The user will receive an email to join your business.",
+      });
       queryClient.invalidateQueries({ queryKey: ['business_users'] });
       setIsAddUserOpen(false);
       setNewUserEmail("");
@@ -151,7 +204,7 @@ export default function Account() {
       setNewUserLastName("");
     },
     onError: (error: Error) => {
-      toast({ title: "Feature not available", description: error.message, variant: "destructive" });
+      toast({ title: "Failed to invite user", description: error.message, variant: "destructive" });
     },
   });
 
@@ -200,6 +253,10 @@ export default function Account() {
   const handleUpdateBusinessName = () => {
     if (!businessName.trim()) return;
     updateBusinessMutation.mutate({ name: businessName.trim() });
+  };
+
+  const handleUpdatePanVat = () => {
+    updateBusinessMutation.mutate({ pan_vat_number: panVatNumber.trim() || undefined });
   };
 
   const handleUpdateCurrency = (newCurrency: string) => {
@@ -285,6 +342,30 @@ export default function Account() {
               )}
             </div>
 
+            <div className="space-y-2">
+              <Label htmlFor="panVatNumber">PAN/VAT Number</Label>
+              <div className="flex gap-2">
+                <Input
+                  id="panVatNumber"
+                  data-testid="input-pan-vat-number"
+                  placeholder={user?.panVatNumber || "Enter PAN/VAT number"}
+                  value={panVatNumber}
+                  onChange={(e) => setPanVatNumber(e.target.value.replace(/[^0-9]/g, ''))}
+                  disabled={!canManageUsers}
+                />
+                <Button
+                  data-testid="button-update-pan-vat"
+                  onClick={handleUpdatePanVat}
+                  disabled={updateBusinessMutation.isPending || !canManageUsers}
+                >
+                  {updateBusinessMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Update"}
+                </Button>
+              </div>
+              {user?.panVatNumber && (
+                <p className="text-xs text-muted-foreground">Current: {user.panVatNumber}</p>
+              )}
+            </div>
+
             <div className="pt-4 border-t space-y-2">
               <Label>Current Business</Label>
               <p className="text-lg font-semibold" data-testid="text-current-business-name">{user?.businessName}</p>
@@ -342,6 +423,38 @@ export default function Account() {
             </div>
           </CardContent>
         </Card>
+
+        <Card className="shadow-sm">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Calendar className="h-5 w-5" />
+              Fiscal Year
+            </CardTitle>
+            <CardDescription>Current Nepali fiscal year (Shrawan 1 – Ashad 31)</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label>Current Fiscal Year</Label>
+              <p className="text-2xl font-bold font-display tracking-tight" data-testid="text-fiscal-year">
+                {getFiscalYearLabel(getCurrentFiscalYear())}
+              </p>
+            </div>
+            <div className="pt-4 border-t space-y-2">
+              <Label>Gregorian Dates</Label>
+              <p className="text-sm text-muted-foreground" data-testid="text-fiscal-year-dates">
+                {getFiscalYearGregorianLabel(getCurrentFiscalYear())}
+              </p>
+            </div>
+            <div className="pt-4 border-t space-y-2">
+              <Label>Days Remaining</Label>
+              <p className="text-lg font-semibold" data-testid="text-fiscal-year-days">
+                {getDaysRemainingInFiscalYear()} days
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
+        <CustomerTypesCard />
       </div>
 
       <div className="grid gap-6">
@@ -518,5 +631,102 @@ export default function Account() {
         </Card>
       </div>
     </div>
+  );
+}
+
+function CustomerTypesCard() {
+  const { data: customerTypes, isLoading } = useCustomerTypes();
+  const createType = useCreateCustomerType();
+  const deleteType = useDeleteCustomerType();
+  const { toast } = useToast();
+  const [newTypeName, setNewTypeName] = useState("");
+
+  const handleAdd = async () => {
+    const name = newTypeName.trim();
+    if (!name) return;
+
+    // Check for duplicates
+    if (customerTypes?.some(t => t.name.toLowerCase() === name.toLowerCase())) {
+      toast({ title: "Type already exists", variant: "destructive" });
+      return;
+    }
+
+    try {
+      await createType.mutateAsync(name);
+      setNewTypeName("");
+      toast({ title: `"${name}" added` });
+    } catch (error: any) {
+      toast({ title: "Failed to add type", description: error.message, variant: "destructive" });
+    }
+  };
+
+  const handleDelete = async (id: number, name: string) => {
+    try {
+      await deleteType.mutateAsync(id);
+      toast({ title: `"${name}" removed` });
+    } catch (error: any) {
+      toast({ title: "Failed to remove type", description: error.message, variant: "destructive" });
+    }
+  };
+
+  return (
+    <Card className="shadow-sm">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Tags className="h-5 w-5" />
+          Customer Types
+        </CardTitle>
+        <CardDescription>Manage customer categories (e.g. B2B, Instagram, TikTok, Facebook, Daraz)</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex gap-2">
+          <Input
+            placeholder="New customer type..."
+            value={newTypeName}
+            onChange={(e) => setNewTypeName(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+            data-testid="input-new-customer-type"
+          />
+          <Button
+            onClick={handleAdd}
+            disabled={!newTypeName.trim() || createType.isPending}
+            size="sm"
+            data-testid="button-add-customer-type"
+          >
+            {createType.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Plus className="h-4 w-4 mr-1" /> Add</>}
+          </Button>
+        </div>
+
+        {isLoading ? (
+          <div className="space-y-2">
+            {[1, 2, 3].map(i => <Skeleton key={i} className="h-8 w-full" />)}
+          </div>
+        ) : (customerTypes || []).length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-4">
+            No customer types yet. Add one above.
+          </p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {customerTypes?.map(type => (
+              <Badge
+                key={type.id}
+                variant="secondary"
+                className="flex items-center gap-1 px-3 py-1.5 text-sm"
+                data-testid={`badge-customer-type-${type.id}`}
+              >
+                {type.name}
+                <button
+                  onClick={() => handleDelete(type.id, type.name)}
+                  className="ml-1 hover:text-destructive transition-colors"
+                  data-testid={`button-delete-customer-type-${type.id}`}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </Badge>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

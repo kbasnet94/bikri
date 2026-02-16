@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "./use-auth";
 import type { Category } from "./use-categories";
+import type { ProductVariant } from "./use-product-variants";
 
 export interface Product {
   id: number;
@@ -11,10 +12,12 @@ export interface Product {
   description: string | null;
   price: number;
   stock_quantity: number;
+  has_variants: boolean;
   category_id: number | null;
   image_url: string | null;
   created_at: string;
   category?: Category | null;
+  variants?: ProductVariant[];
 }
 
 export interface ProductsQueryParams {
@@ -32,7 +35,8 @@ export function useProducts(params?: ProductsQueryParams) {
         .from('products')
         .select(`
           *,
-          category:categories(*)
+          category:categories(*),
+          variants:product_variants(*)
         `);
 
       if (params?.search) {
@@ -60,7 +64,8 @@ export function useProduct(id: number) {
         .from('products')
         .select(`
           *,
-          category:categories(*)
+          category:categories(*),
+          variants:product_variants(*)
         `)
         .eq('id', id)
         .single();
@@ -89,6 +94,8 @@ export function useCreateProduct() {
       stockQuantity?: number;
       categoryId?: number;
       imageUrl?: string;
+      hasVariants?: boolean;
+      variants?: { name: string; sku: string; price: number; stockQuantity?: number; imageUrl?: string | null }[];
     }) => {
       if (!user?.businessId) throw new Error('No business selected');
 
@@ -98,8 +105,9 @@ export function useCreateProduct() {
           name: product.name,
           sku: product.sku,
           description: product.description || null,
-          price: product.price,
-          stock_quantity: product.stockQuantity || 0,
+          price: product.hasVariants ? 0 : product.price,
+          stock_quantity: product.hasVariants ? 0 : (product.stockQuantity || 0),
+          has_variants: product.hasVariants || false,
           category_id: product.categoryId || null,
           image_url: product.imageUrl || null,
           business_id: user.businessId,
@@ -111,6 +119,25 @@ export function useCreateProduct() {
         .single();
 
       if (error) throw error;
+
+      // Create variants if applicable
+      if (product.hasVariants && product.variants && product.variants.length > 0) {
+        const variantInserts = product.variants.map(v => ({
+          product_id: data.id,
+          name: v.name.trim(),
+          sku: v.sku.trim(),
+          price: v.price,
+          stock_quantity: v.stockQuantity || 0,
+          image_url: v.imageUrl || null,
+        }));
+
+        const { error: variantError } = await supabase
+          .from('product_variants')
+          .insert(variantInserts);
+
+        if (variantError) throw variantError;
+      }
+
       return data as Product;
     },
     onSuccess: () => {

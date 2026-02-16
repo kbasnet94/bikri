@@ -1,6 +1,8 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useCustomers, useCreateCustomer, useCreateLedgerEntry, useCustomerLedger } from "@/hooks/use-customers";
 import { useCurrency } from "@/hooks/use-currency";
+import { useAuth } from "@/hooks/use-auth";
+import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -20,6 +22,12 @@ import {
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Plus, Search, Eye, Wallet, Calendar, DollarSign, FileText, Upload, AlertCircle, CheckCircle2, Download } from "lucide-react";
+import {
+  getCurrentFiscalYear,
+  getFiscalYearDates,
+  getFiscalYearLabel,
+  getFiscalYearsWithData,
+} from "@/lib/fiscal-year";
 import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -31,6 +39,8 @@ import { cn } from "@/lib/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card } from "@/components/ui/card";
 import { useQueryClient } from "@tanstack/react-query";
+import { useCustomerTypes } from "@/hooks/use-customer-types";
+import { Badge } from "@/components/ui/badge";
 import { api } from "@shared/routes";
 import Papa from "papaparse";
 
@@ -102,7 +112,14 @@ export default function Customers() {
                 <TableRow key={customer.id} className="group hover:bg-muted/5">
                   <TableCell className="font-medium">
                     <div className="flex flex-col">
-                      <span>{customer.name}</span>
+                      <div className="flex items-center gap-2">
+                        <span>{customer.name}</span>
+                        {customer.customer_type && (
+                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-normal">
+                            {customer.customer_type.name}
+                          </Badge>
+                        )}
+                      </div>
                       <span className="text-xs text-muted-foreground">{customer.address}</span>
                     </div>
                   </TableCell>
@@ -158,9 +175,18 @@ function CreateCustomerDialog({ open, onOpenChange }: any) {
   const { toast } = useToast();
   const createCustomer = useCreateCustomer();
   const { symbol } = useCurrency();
+  const { data: customerTypes } = useCustomerTypes();
+  const [selectedTypeId, setSelectedTypeId] = useState<string>("");
   
+  const customerFormSchema = insertCustomerSchema.extend({
+    phone: z.string().optional().refine(
+      (val) => !val || /^\d{10}$/.test(val),
+      { message: "Phone number must be exactly 10 digits" }
+    ),
+  });
+
   const form = useForm({
-    resolver: zodResolver(insertCustomerSchema),
+    resolver: zodResolver(customerFormSchema),
     defaultValues: {
       name: "",
       email: "",
@@ -174,10 +200,15 @@ function CreateCustomerDialog({ open, onOpenChange }: any) {
   const onSubmit = async (values: any) => {
     try {
       const creditLimitInCents = Math.round(values.creditLimit * 100);
-      await createCustomer.mutateAsync({ ...values, creditLimit: creditLimitInCents });
+      await createCustomer.mutateAsync({
+        ...values,
+        creditLimit: creditLimitInCents,
+        customerTypeId: selectedTypeId && selectedTypeId !== 'none' ? parseInt(selectedTypeId) : null,
+      });
       toast({ title: "Customer created successfully" });
       onOpenChange(false);
       form.reset();
+      setSelectedTypeId("");
     } catch (error: any) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     }
@@ -202,6 +233,22 @@ function CreateCustomerDialog({ open, onOpenChange }: any) {
                 </FormItem>
               )}
             />
+            {(customerTypes || []).length > 0 && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Customer Type</label>
+                <Select value={selectedTypeId} onValueChange={setSelectedTypeId}>
+                  <SelectTrigger data-testid="select-customer-type">
+                    <SelectValue placeholder="Select type (optional)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">None</SelectItem>
+                    {customerTypes!.map(t => (
+                      <SelectItem key={t.id} value={String(t.id)}>{t.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-4">
               <FormField
                 control={form.control}
@@ -220,7 +267,15 @@ function CreateCustomerDialog({ open, onOpenChange }: any) {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Phone</FormLabel>
-                    <FormControl><Input placeholder="(555) 123-4567" {...field} value={field.value || ''} /></FormControl>
+                    <FormControl>
+                      <Input 
+                        placeholder="98XXXXXXXX" 
+                        maxLength={10}
+                        {...field} 
+                        value={field.value || ''} 
+                        onChange={(e) => field.onChange(e.target.value.replace(/[^0-9]/g, ''))}
+                      />
+                    </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -286,7 +341,73 @@ function CustomerDetailsDialog({ customer, open, onOpenChange }: any) {
   const createLedgerEntry = useCreateLedgerEntry();
   const { toast } = useToast();
   const [isAddingEntry, setIsAddingEntry] = useState(false);
+  const [selectedFiscalYear, setSelectedFiscalYear] = useState<string>(String(getCurrentFiscalYear()));
   const { formatCurrency, formatCurrencyShort, symbol } = useCurrency();
+  const ledgerEndRef = useRef<HTMLDivElement>(null);
+
+  // Build fiscal year list from actual ledger entry dates (only years with data + current)
+  // Parse date strings safely to local dates to avoid UTC timezone issues
+  const availableFiscalYears = getFiscalYearsWithData(
+    (ledger || []).map(e => {
+      const ds = e.entry_date!;
+      if (ds.length === 10 && ds[4] === '-') {
+        const [y, m, d] = ds.split('-').map(Number);
+        return new Date(y, m - 1, d);
+      }
+      return new Date(ds);
+    })
+  );
+
+  // Filter ledger by fiscal year and compute opening balance
+  const isAllTime = selectedFiscalYear === 'all';
+  const fyDates = !isAllTime ? getFiscalYearDates(Number(selectedFiscalYear)) : null;
+
+  // Normalize a date string to a local-midnight Date for safe comparison.
+  // Handles both "yyyy-MM-dd" (date-only) and full ISO timestamps.
+  const toLocalDate = (dateStr: string): Date => {
+    // If it's a date-only string (yyyy-MM-dd), parse parts directly to avoid UTC interpretation
+    if (dateStr.length === 10 && dateStr[4] === '-') {
+      const [y, m, d] = dateStr.split('-').map(Number);
+      return new Date(y, m - 1, d);
+    }
+    // For full ISO timestamps, just create the Date (JS handles timezone)
+    const d = new Date(dateStr);
+    // Normalize to local midnight for date-only comparison
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  };
+
+  const filteredLedger = ledger?.filter(entry => {
+    if (isAllTime || !fyDates) return true;
+    const entryDate = toLocalDate(entry.entry_date!);
+    const startDate = new Date(fyDates.start.getFullYear(), fyDates.start.getMonth(), fyDates.start.getDate());
+    const endDate = new Date(fyDates.end.getFullYear(), fyDates.end.getMonth(), fyDates.end.getDate());
+    return entryDate >= startDate && entryDate <= endDate;
+  }) || [];
+
+  // Opening balance = sum of all entries before fiscal year start
+  // Debits/purchases increase balance (money owed), credits decrease it
+  const openingBalance = (!isAllTime && fyDates && ledger) 
+    ? ledger.reduce((sum, entry) => {
+        const entryDate = toLocalDate(entry.entry_date!);
+        const startDate = new Date(fyDates.start.getFullYear(), fyDates.start.getMonth(), fyDates.start.getDate());
+        if (entryDate < startDate) {
+          if (entry.type === 'credit') return sum - entry.amount;
+          return sum + entry.amount;
+        }
+        return sum;
+      }, 0)
+    : null;
+
+  // Auto-scroll to the bottom of the ledger so the latest entries are visible
+  useEffect(() => {
+    // Small delay to let the DOM render the table rows first
+    const timer = setTimeout(() => {
+      if (ledgerEndRef.current) {
+        ledgerEndRef.current.scrollIntoView({ behavior: 'smooth' });
+      }
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [filteredLedger.length, selectedFiscalYear, open]);
 
   const entryForm = useForm({
     resolver: zodResolver(insertLedgerEntrySchema),
@@ -310,35 +431,53 @@ function CustomerDetailsDialog({ customer, open, onOpenChange }: any) {
     }
   };
 
-  const downloadLedgerCSV = () => {
-    if (!ledger || ledger.length === 0) {
+  const downloadLedgerCSV = (exportMode: 'fiscal' | 'all' = 'fiscal') => {
+    const entriesToExport = exportMode === 'all' ? (ledger || []) : filteredLedger;
+    
+    if (entriesToExport.length === 0 && (exportMode === 'all' || openingBalance === null || openingBalance === 0)) {
       toast({ title: "No data to export", description: "This customer has no transactions yet.", variant: "destructive" });
       return;
     }
 
+    const csvRows: Array<Record<string, string>> = [];
+
+    // Add opening balance row for fiscal year exports
+    if (exportMode === 'fiscal' && openingBalance !== null) {
+      const obAmount = (Math.abs(openingBalance) / 100).toFixed(2);
+      csvRows.push({
+        Date: fyDates ? format(fyDates.start, 'yyyy-MM-dd') : '',
+        Description: `Opening Balance (FY ${getFiscalYearLabel(Number(selectedFiscalYear))})`,
+        Debit: openingBalance > 0 ? obAmount : '',
+        Credit: openingBalance < 0 ? obAmount : '',
+        Adjustments: '',
+      });
+    }
+
     // Format data for CSV with separate columns for Debit, Credit, and Adjustments
-    const csvData = ledger.map(entry => {
-      const amount = (entry.amount / 100).toFixed(2); // Convert cents to currency units
-      
-      return {
+    entriesToExport.forEach(entry => {
+      const amount = (entry.amount / 100).toFixed(2);
+      csvRows.push({
         Date: format(new Date(entry.entry_date!), 'yyyy-MM-dd'),
         Description: entry.description || '-',
         Debit: (entry.type === 'debit' || entry.type === 'purchase') ? amount : '',
         Credit: entry.type === 'credit' ? amount : '',
         Adjustments: entry.type === 'adjustment' ? amount : '',
-      };
+      });
     });
 
     // Generate CSV using Papa Parse
-    const csv = Papa.unparse(csvData);
+    const csv = Papa.unparse(csvRows);
     
     // Create blob and download
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     const url = URL.createObjectURL(blob);
     
+    const fySuffix = exportMode === 'fiscal' && !isAllTime
+      ? `_FY${getFiscalYearLabel(Number(selectedFiscalYear)).replace('/', '-')}`
+      : '_all-time';
     link.setAttribute('href', url);
-    link.setAttribute('download', `${customer.name.replace(/[^a-z0-9]/gi, '_')}_ledger_${format(new Date(), 'yyyy-MM-dd')}.csv`);
+    link.setAttribute('download', `${customer.name.replace(/[^a-z0-9]/gi, '_')}_ledger${fySuffix}.csv`);
     link.style.visibility = 'hidden';
     
     document.body.appendChild(link);
@@ -354,7 +493,12 @@ function CustomerDetailsDialog({ customer, open, onOpenChange }: any) {
         <div className="p-6 border-b bg-muted/10">
           <div className="flex justify-between items-start">
             <div>
-              <h2 className="text-2xl font-display font-bold">{customer.name}</h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-2xl font-display font-bold">{customer.name}</h2>
+                {customer.customer_type && (
+                  <Badge variant="secondary" className="text-xs">{customer.customer_type.name}</Badge>
+                )}
+              </div>
               <p className="text-muted-foreground flex items-center gap-2 mt-1">
                 <Wallet className="w-4 h-4" />
                 Balance: <span className={customer.current_balance > 0 ? "text-red-500 font-bold" : "text-green-500 font-bold"}>
@@ -385,22 +529,54 @@ function CustomerDetailsDialog({ customer, open, onOpenChange }: any) {
           </div>
 
           <TabsContent value="ledger" className="flex-1 overflow-auto p-6 space-y-4">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="font-semibold text-lg">Transaction History</h3>
-              <div className="flex gap-2">
-                <Button 
-                  size="sm" 
-                  variant="outline" 
-                  onClick={downloadLedgerCSV}
-                  disabled={!ledger || ledger.length === 0}
-                  data-testid="button-download-ledger"
-                >
-                  <Download className="w-4 h-4 mr-2" />
-                  Download CSV
-                </Button>
+            <div className="flex flex-col gap-3 mb-4">
+              <div className="flex justify-between items-center">
+                <h3 className="font-semibold text-lg">Transaction History</h3>
                 <Button size="sm" onClick={() => setIsAddingEntry(!isAddingEntry)} variant={isAddingEntry ? "secondary" : "default"}>
                   {isAddingEntry ? "Cancel" : "Add Transaction"}
                 </Button>
+              </div>
+              <div className="flex items-center gap-3 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <Calendar className="w-4 h-4 text-muted-foreground" />
+                  <Select value={selectedFiscalYear} onValueChange={setSelectedFiscalYear}>
+                    <SelectTrigger className="w-[160px] h-8" data-testid="select-fiscal-year">
+                      <SelectValue placeholder="Fiscal Year" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Time</SelectItem>
+                      {availableFiscalYears.map(fy => (
+                        <SelectItem key={fy.bsYear} value={String(fy.bsYear)}>
+                          FY {fy.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex gap-2 ml-auto">
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    onClick={() => downloadLedgerCSV('fiscal')}
+                    disabled={filteredLedger.length === 0 && (openingBalance === null || openingBalance === 0)}
+                    data-testid="button-download-ledger-fy"
+                  >
+                    <Download className="w-4 h-4 mr-2" />
+                    {isAllTime ? 'Download CSV' : `Download FY ${getFiscalYearLabel(Number(selectedFiscalYear))}`}
+                  </Button>
+                  {!isAllTime && (
+                    <Button 
+                      size="sm" 
+                      variant="ghost" 
+                      onClick={() => downloadLedgerCSV('all')}
+                      disabled={!ledger || ledger.length === 0}
+                      data-testid="button-download-ledger-all"
+                    >
+                      <Download className="w-4 h-4 mr-2" />
+                      All Time
+                    </Button>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -467,25 +643,41 @@ function CustomerDetailsDialog({ customer, open, onOpenChange }: any) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {ledger?.length === 0 ? (
+                {filteredLedger.length === 0 && openingBalance === null ? (
                   <TableRow><TableCell colSpan={4} className="text-center py-8 text-muted-foreground">No transactions found.</TableCell></TableRow>
                 ) : (
-                  ledger?.map((entry) => (
-                    <TableRow key={entry.id}>
-                      <TableCell className="font-mono text-xs">{format(new Date(entry.entry_date!), 'MMM dd, yyyy')}</TableCell>
-                      <TableCell>{entry.description || "-"}</TableCell>
-                      <TableCell className="capitalize text-xs font-medium text-muted-foreground">{entry.type}</TableCell>
-                      <TableCell className={cn(
-                        "text-right font-mono font-medium",
-                        entry.type === 'credit' ? "text-green-600" : "text-foreground"
-                      )}>
-                        {entry.type === 'credit' ? "-" : "+"}{formatCurrency(entry.amount)}
-                      </TableCell>
-                    </TableRow>
-                  ))
+                  <>
+                    {openingBalance !== null && (
+                      <TableRow className="bg-muted/30 font-medium">
+                        <TableCell className="font-mono text-xs">{fyDates ? format(fyDates.start, 'MMM dd, yyyy') : '-'}</TableCell>
+                        <TableCell>Opening Balance</TableCell>
+                        <TableCell className="text-xs text-muted-foreground">—</TableCell>
+                        <TableCell className={cn(
+                          "text-right font-mono font-medium",
+                          openingBalance < 0 ? "text-green-600" : openingBalance > 0 ? "text-red-500" : "text-foreground"
+                        )}>
+                          {openingBalance === 0 ? formatCurrency(0) : openingBalance > 0 ? `+${formatCurrency(openingBalance)}` : `-${formatCurrency(Math.abs(openingBalance))}`}
+                        </TableCell>
+                      </TableRow>
+                    )}
+                    {filteredLedger.map((entry) => (
+                      <TableRow key={entry.id}>
+                        <TableCell className="font-mono text-xs">{format(new Date(entry.entry_date!), 'MMM dd, yyyy')}</TableCell>
+                        <TableCell>{entry.description || "-"}</TableCell>
+                        <TableCell className="capitalize text-xs font-medium text-muted-foreground">{entry.type}</TableCell>
+                        <TableCell className={cn(
+                          "text-right font-mono font-medium",
+                          entry.type === 'credit' ? "text-green-600" : "text-foreground"
+                        )}>
+                          {entry.type === 'credit' ? "-" : "+"}{formatCurrency(entry.amount)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </>
                 )}
               </TableBody>
             </Table>
+            <div ref={ledgerEndRef} />
           </TabsContent>
 
           <TabsContent value="info" className="p-6">
@@ -513,13 +705,15 @@ function CustomerDetailsDialog({ customer, open, onOpenChange }: any) {
 function BulkCustomerUploadDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const { data: customerTypes } = useCustomerTypes();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [parsedRows, setParsedRows] = useState<any[]>([]);
   const [fileName, setFileName] = useState("");
   const [isUploading, setIsUploading] = useState(false);
   const { symbol } = useCurrency();
 
-  const expectedHeaders = ['name', 'email', 'phone', 'address', 'panVatNumber', 'creditLimit'];
+  const expectedHeaders = ['name', 'email', 'phone', 'address', 'panVatNumber', 'creditLimit', 'customerType'];
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -538,29 +732,102 @@ function BulkCustomerUploadDialog({ open, onOpenChange }: { open: boolean; onOpe
   };
 
   const handleUpload = async () => {
-    if (parsedRows.length === 0) return;
+    if (parsedRows.length === 0 || !user?.businessId) return;
     setIsUploading(true);
+
+    const errors: string[] = [];
+    let created = 0;
+    const duplicatePhones: string[] = [];
+    const seenPhones = new Set<string>();
+
     try {
-      const res = await fetch('/api/bulk/customers', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rows: parsedRows }),
-        credentials: 'include',
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        const errorCount = data.errors?.length || 0;
-        const firstErrors = (data.errors || []).slice(0, 5).map((e: any) => `Row ${e.row}: ${e.message}`).join('\n');
-        toast({ title: `${errorCount} row(s) have errors`, description: firstErrors, variant: "destructive" });
-        return;
+      for (let i = 0; i < parsedRows.length; i++) {
+        const row = parsedRows[i];
+        const name = row.name?.trim();
+        const email = row.email?.trim() || null;
+        const phone = row.phone?.trim() || null;
+        const address = row.address?.trim() || null;
+        const panVatNumber = row.panVatNumber?.trim() || null;
+        const creditLimit = Math.round(parseFloat(row.creditLimit || '0') * 100);
+        const customerTypeName = row.customerType?.trim() || null;
+
+        // Match customer type name to ID
+        let customerTypeId: number | null = null;
+        if (customerTypeName && customerTypes) {
+          const match = customerTypes.find(t => t.name.toLowerCase() === customerTypeName.toLowerCase());
+          if (match) {
+            customerTypeId = match.id;
+          }
+          // If no match found, silently skip (don't block the row)
+        }
+
+        // Validate: name is required
+        if (!name) {
+          errors.push(`Row ${i + 1}: missing name`);
+          continue;
+        }
+
+        // Validate: phone must be exactly 10 digits if provided
+        if (phone && !/^\d{10}$/.test(phone)) {
+          errors.push(`Row ${i + 1}: phone must be exactly 10 digits`);
+          continue;
+        }
+
+        // Track duplicate phones within this upload batch
+        if (phone) {
+          if (seenPhones.has(phone)) {
+            duplicatePhones.push(phone);
+          }
+          seenPhones.add(phone);
+        }
+
+        try {
+          const { error: insertError } = await supabase
+            .from('customers')
+            .insert({
+              name,
+              email,
+              phone,
+              address,
+              pan_vat_number: panVatNumber,
+              credit_limit: creditLimit,
+              current_balance: 0,
+              business_id: user.businessId,
+              customer_type_id: customerTypeId,
+            });
+
+          if (insertError) {
+            errors.push(`Row ${i + 1} ("${name}"): ${insertError.message}`);
+            continue;
+          }
+
+          created++;
+        } catch (err: any) {
+          errors.push(`Row ${i + 1} ("${name}"): ${err.message}`);
+        }
       }
-      let msg = `${data.created} customer(s) created successfully.`;
-      if (data.duplicatePhones?.length > 0) {
-        msg += ` ${data.duplicatePhones.length} duplicate phone number(s) found (still uploaded).`;
+
+      // Report results
+      if (created > 0) {
+        let msg = `${created} customer(s) created successfully.`;
+        if (duplicatePhones.length > 0) {
+          msg += ` ${duplicatePhones.length} duplicate phone number(s) found (still uploaded).`;
+        }
+        toast({ title: msg });
       }
-      toast({ title: msg });
-      queryClient.invalidateQueries({ queryKey: [api.customers.list.path] });
-      resetAndClose();
+      if (errors.length > 0) {
+        toast({
+          title: `${errors.length} error(s)`,
+          description: errors.slice(0, 5).join('\n'),
+          variant: "destructive",
+        });
+      }
+
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+
+      if (created > 0 && errors.length === 0) {
+        resetAndClose();
+      }
     } catch (err: any) {
       toast({ title: "Upload failed", description: err.message, variant: "destructive" });
     } finally {
@@ -591,7 +858,8 @@ function BulkCustomerUploadDialog({ open, onOpenChange }: { open: boolean; onOpe
             </code>
             <p className="text-muted-foreground text-xs mt-1">
               <strong>name</strong> is required. <strong>creditLimit</strong> is in currency units (e.g. 1500 = {symbol}1,500). 
-              <strong> panVatNumber</strong> must be numeric only. <strong>phone</strong> is used for duplicate detection.
+              <strong> panVatNumber</strong> must be numeric only. <strong>phone</strong> must be exactly 10 digits and is used for duplicate detection.
+              <strong> customerType</strong> must match an existing type name (optional).
             </p>
           </div>
 
@@ -654,6 +922,7 @@ function BulkCustomerUploadDialog({ open, onOpenChange }: { open: boolean; onOpe
 function BulkLedgerUploadDialog({ open, onOpenChange, customers }: { open: boolean; onOpenChange: (open: boolean) => void; customers: any[] }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [parsedRows, setParsedRows] = useState<any[]>([]);
   const [fileName, setFileName] = useState("");
@@ -679,26 +948,99 @@ function BulkLedgerUploadDialog({ open, onOpenChange, customers }: { open: boole
   };
 
   const handleUpload = async () => {
-    if (parsedRows.length === 0) return;
+    if (parsedRows.length === 0 || !user?.businessId) return;
     setIsUploading(true);
+
+    const errors: string[] = [];
+    let created = 0;
+    const validTypes = ['credit', 'adjustment'];
+
     try {
-      const res = await fetch('/api/bulk/ledger', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rows: parsedRows }),
-        credentials: 'include',
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        const errorCount = data.errors?.length || 0;
-        const firstErrors = (data.errors || []).slice(0, 5).map((e: any) => `Row ${e.row}: ${e.message}`).join('\n');
-        toast({ title: `${errorCount} row(s) have errors`, description: firstErrors, variant: "destructive" });
-        return;
+      for (let i = 0; i < parsedRows.length; i++) {
+        const row = parsedRows[i];
+        const customerId = parseInt(row.customerRefID);
+        const type = row.type?.trim().toLowerCase();
+        const amount = Math.round(parseFloat(row.amount || '0') * 100);
+        const description = row.description?.trim() || null;
+        const entryDate = row.entryDate?.trim() || new Date().toISOString();
+
+        // Validate: customerRefID required
+        if (isNaN(customerId)) {
+          errors.push(`Row ${i + 1}: invalid or missing customerRefID`);
+          continue;
+        }
+
+        // Validate: type must be credit or adjustment
+        if (!validTypes.includes(type)) {
+          errors.push(`Row ${i + 1}: type must be "credit" or "adjustment" (got "${row.type?.trim()}")`);
+          continue;
+        }
+
+        // Validate: amount required and positive
+        if (!amount || amount <= 0) {
+          errors.push(`Row ${i + 1}: invalid or missing amount`);
+          continue;
+        }
+
+        try {
+          // 1. Create ledger entry
+          const { error: ledgerError } = await supabase
+            .from('ledger_entries')
+            .insert({
+              customer_id: customerId,
+              type,
+              amount,
+              description,
+              entry_date: entryDate,
+              business_id: user.businessId,
+            });
+
+          if (ledgerError) {
+            errors.push(`Row ${i + 1}: ${ledgerError.message}`);
+            continue;
+          }
+
+          // 2. Update customer balance
+          // Credit entries decrease balance (payment received), other entries increase balance
+          const balanceChange = type === 'credit' ? -amount : amount;
+
+          const { data: customer } = await supabase
+            .from('customers')
+            .select('current_balance')
+            .eq('id', customerId)
+            .single();
+
+          if (customer) {
+            await supabase
+              .from('customers')
+              .update({ current_balance: customer.current_balance + balanceChange })
+              .eq('id', customerId);
+          }
+
+          created++;
+        } catch (err: any) {
+          errors.push(`Row ${i + 1}: ${err.message}`);
+        }
       }
-      toast({ title: `${data.created} ledger entry/entries created successfully.` });
-      queryClient.invalidateQueries({ queryKey: [api.customers.list.path] });
-      queryClient.invalidateQueries({ queryKey: [api.ledger.list.path] });
-      resetAndClose();
+
+      // Report results
+      if (created > 0) {
+        toast({ title: `${created} ledger entry/entries created successfully.` });
+      }
+      if (errors.length > 0) {
+        toast({
+          title: `${errors.length} error(s)`,
+          description: errors.slice(0, 5).join('\n'),
+          variant: "destructive",
+        });
+      }
+
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      queryClient.invalidateQueries({ queryKey: ['ledger'] });
+
+      if (created > 0 && errors.length === 0) {
+        resetAndClose();
+      }
     } catch (err: any) {
       toast({ title: "Upload failed", description: err.message, variant: "destructive" });
     } finally {
@@ -729,6 +1071,7 @@ function BulkLedgerUploadDialog({ open, onOpenChange, customers }: { open: boole
             </code>
             <p className="text-muted-foreground text-xs mt-1">
               <strong>customerRefID</strong> = the customer's database ID (visible in the Customers table below).
+              <strong> type</strong>: "credit" (payment/deposit) or "adjustment".
               <strong> amount</strong> is in currency units (e.g. 500 = {symbol}500).
               <strong> entryDate</strong> format: YYYY-MM-DD.
             </p>
@@ -739,6 +1082,7 @@ function BulkLedgerUploadDialog({ open, onOpenChange, customers }: { open: boole
             <p className="text-xs text-yellow-700 dark:text-yellow-300">
               Only <strong>credit</strong> (payment/deposit) and <strong>adjustment</strong> entries can be uploaded. 
               Purchase entries are automatically created when orders are placed.
+              Credit entries will decrease customer balance. Adjustment entries will increase it.
             </p>
           </div>
 

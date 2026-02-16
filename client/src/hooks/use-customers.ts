@@ -12,6 +12,8 @@ export interface Customer {
   pan_vat_number: string | null;
   credit_limit: number;
   current_balance: number;
+  customer_type_id: number | null;
+  customer_type?: { id: number; name: string } | null;
   created_at: string;
 }
 
@@ -35,16 +37,55 @@ export function useCustomers(search?: string) {
     queryFn: async () => {
       let query = supabase
         .from('customers')
-        .select('*');
+        .select('*, customer_type:customer_types(id, name)');
 
       if (search) {
         query = query.or(`name.ilike.%${search}%,email.ilike.%${search}%,phone.ilike.%${search}%`);
       }
 
-      const { data, error } = await query.order('name');
+      // Sort by balance descending (highest debt first), then by name
+      // Supabase defaults to 1000 rows max; raise the limit to handle large customer lists
+      const { data, error } = await query
+        .order('current_balance', { ascending: false })
+        .order('name', { ascending: true })
+        .limit(10000);
       
       if (error) throw error;
       return data as Customer[];
+    },
+    enabled: !!user?.businessId,
+  });
+}
+
+export function useCustomerStats() {
+  const { user } = useAuth();
+
+  return useQuery({
+    queryKey: ['customer-stats', user?.businessId],
+    queryFn: async () => {
+      // Get exact count using Supabase's head count (no row data transferred)
+      const { count, error: countError } = await supabase
+        .from('customers')
+        .select('*', { count: 'exact', head: true });
+
+      if (countError) throw countError;
+
+      // Get total outstanding credit balance
+      const { data: balanceData, error: balanceError } = await supabase
+        .from('customers')
+        .select('current_balance')
+        .gt('current_balance', 0);
+
+      if (balanceError) throw balanceError;
+
+      const totalCreditBalance = (balanceData || []).reduce(
+        (sum, c) => sum + c.current_balance, 0
+      );
+
+      return {
+        totalCustomers: count || 0,
+        totalCreditBalance,
+      };
     },
     enabled: !!user?.businessId,
   });
@@ -79,7 +120,7 @@ export function useCustomerLedger(customerId: number) {
         .from('ledger_entries')
         .select('*')
         .eq('customer_id', customerId)
-        .order('entry_date', { ascending: false });
+        .order('entry_date', { ascending: true });
 
       if (error) throw error;
       return data as LedgerEntry[];
@@ -100,6 +141,7 @@ export function useCreateCustomer() {
       address?: string;
       panVatNumber?: string;
       creditLimit?: number;
+      customerTypeId?: number | null;
     }) => {
       if (!user?.businessId) throw new Error('No business selected');
 
@@ -114,6 +156,7 @@ export function useCreateCustomer() {
           credit_limit: customer.creditLimit || 0,
           current_balance: 0,
           business_id: user.businessId,
+          customer_type_id: customer.customerTypeId || null,
         })
         .select()
         .single();
@@ -191,5 +234,28 @@ export function useCreateLedgerEntry() {
       queryClient.invalidateQueries({ queryKey: ['customers', data.customer_id] });
       queryClient.invalidateQueries({ queryKey: ['customers'] });
     },
+  });
+}
+
+export function useCustomerTypeMap() {
+  const { user } = useAuth();
+
+  return useQuery({
+    queryKey: ['customers', 'type-map', user?.businessId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('customers')
+        .select('id, customer_type_id')
+        .limit(50000);
+
+      if (error) throw error;
+
+      const map = new Map<number, number | null>();
+      for (const row of data || []) {
+        map.set(row.id, row.customer_type_id);
+      }
+      return map;
+    },
+    enabled: !!user?.businessId,
   });
 }

@@ -1,12 +1,17 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { useProducts, useCreateProduct, useUpdateProduct, useDeleteProduct } from "@/hooks/use-products";
+import type { Product } from "@/hooks/use-products";
 import { useCategories, useCreateCategory, useDeleteCategory } from "@/hooks/use-categories";
 import { useInventoryMovements, useCreateInventoryMovement, useStockAtDate } from "@/hooks/use-inventory-movements";
+import { useProductVariants, useCreateProductVariant, useUpdateProductVariant, useDeleteProductVariant } from "@/hooks/use-product-variants";
+import type { ProductVariant } from "@/hooks/use-product-variants";
 import { useCurrency } from "@/hooks/use-currency";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import {
   Table,
   TableBody,
@@ -29,7 +34,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Search, Pencil, Trash2, Filter, X, Package, History, ArrowUpCircle, ArrowDownCircle, RefreshCw, Calendar } from "lucide-react";
+import { Plus, Search, Pencil, Trash2, Filter, X, Package, History, ArrowUpCircle, ArrowDownCircle, RefreshCw, Calendar, ChevronDown, ChevronRight, ImagePlus } from "lucide-react";
+import { uploadProductImage } from "@/lib/upload-image";
 import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -56,9 +62,21 @@ export default function Inventory() {
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<ProductResponse | null>(null);
-  const [recordStockProduct, setRecordStockProduct] = useState<ProductResponse | null>(null);
-  const [historyProduct, setHistoryProduct] = useState<ProductResponse | null>(null);
+  const [recordStockProduct, setRecordStockProduct] = useState<Product | null>(null);
+  const [recordStockVariant, setRecordStockVariant] = useState<ProductVariant | null>(null);
+  const [historyProduct, setHistoryProduct] = useState<Product | null>(null);
+  const [historyVariant, setHistoryVariant] = useState<ProductVariant | null>(null);
+  const [expandedProducts, setExpandedProducts] = useState<Set<number>>(new Set());
   const { formatCurrency } = useCurrency();
+
+  const toggleExpand = (productId: number) => {
+    setExpandedProducts(prev => {
+      const next = new Set(prev);
+      if (next.has(productId)) next.delete(productId);
+      else next.add(productId);
+      return next;
+    });
+  };
 
   const { data: products, isLoading } = useProducts({ 
     search, 
@@ -143,55 +161,142 @@ export default function Inventory() {
                 <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">No products found.</TableCell>
               </TableRow>
             ) : (
-              products?.map((product) => (
-                <TableRow key={product.id} className="group">
-                  <TableCell className="font-medium">{product.name}</TableCell>
-                  <TableCell className="font-mono text-xs text-muted-foreground">{product.sku}</TableCell>
-                  <TableCell>
-                    {product.category?.name ? (
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary/10 text-primary">
-                        {product.category.name}
-                      </span>
-                    ) : (
-                      <span className="text-muted-foreground text-xs italic">Uncategorized</span>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-right">{formatCurrency(product.price)}</TableCell>
-                  <TableCell className="text-right">
-                    <span className={product.stock_quantity < 10 ? "text-red-500 font-bold" : ""}>
-                      {product.stock_quantity}
-                    </span>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-1">
-                      <Button 
-                        variant="ghost" 
-                        size="icon" 
-                        onClick={() => setRecordStockProduct(product)}
-                        title="Record Stock"
-                        data-testid={`button-record-stock-${product.id}`}
-                      >
-                        <Package className="w-4 h-4 text-muted-foreground hover:text-primary" />
-                      </Button>
-                      <Button 
-                        variant="ghost" 
-                        size="icon" 
-                        onClick={() => setHistoryProduct(product)}
-                        title="View History"
-                        data-testid={`button-view-history-${product.id}`}
-                      >
-                        <History className="w-4 h-4 text-muted-foreground hover:text-primary" />
-                      </Button>
-                      <Button variant="ghost" size="icon" onClick={() => setEditingProduct(product)} data-testid={`button-edit-product-${product.id}`}>
-                        <Pencil className="w-4 h-4 text-muted-foreground hover:text-primary" />
-                      </Button>
-                      <Button variant="ghost" size="icon" onClick={() => handleDelete(product.id)} data-testid={`button-delete-product-${product.id}`}>
-                        <Trash2 className="w-4 h-4 text-muted-foreground hover:text-destructive" />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))
+              products?.map((product) => {
+                const isExpanded = expandedProducts.has(product.id);
+                const hasVariants = product.has_variants && product.variants && product.variants.length > 0;
+                const totalVariantStock = hasVariants
+                  ? product.variants!.reduce((sum, v) => sum + v.stock_quantity, 0)
+                  : product.stock_quantity;
+                const priceDisplay = hasVariants
+                  ? (() => {
+                      const prices = product.variants!.map(v => v.price);
+                      const min = Math.min(...prices);
+                      const max = Math.max(...prices);
+                      return min === max ? formatCurrency(min) : `${formatCurrency(min)} – ${formatCurrency(max)}`;
+                    })()
+                  : formatCurrency(product.price);
+
+                return (
+                  <React.Fragment key={product.id}>
+                    <TableRow className="group">
+                      <TableCell className="font-medium">
+                        <div className="flex items-center gap-2">
+                          {hasVariants && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-5 w-5 p-0"
+                              onClick={() => toggleExpand(product.id)}
+                            >
+                              {isExpanded
+                                ? <ChevronDown className="w-4 h-4" />
+                                : <ChevronRight className="w-4 h-4" />}
+                            </Button>
+                          )}
+                          {product.image_url && (
+                            <img src={product.image_url} alt={product.name} className="w-8 h-8 rounded object-cover border" />
+                          )}
+                          <span>{product.name}</span>
+                          {hasVariants && (
+                            <span className="text-xs text-muted-foreground">
+                              ({product.variants!.length} variants)
+                            </span>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="font-mono text-xs text-muted-foreground">
+                        {hasVariants ? "—" : product.sku}
+                      </TableCell>
+                      <TableCell>
+                        {product.category?.name ? (
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary/10 text-primary">
+                            {product.category.name}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground text-xs italic">Uncategorized</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right">{priceDisplay}</TableCell>
+                      <TableCell className="text-right">
+                        <span className={totalVariantStock < 10 ? "text-red-500 font-bold" : ""}>
+                          {totalVariantStock}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-1">
+                          {!hasVariants && (
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              onClick={() => { setRecordStockProduct(product); setRecordStockVariant(null); }}
+                              title="Record Stock"
+                              data-testid={`button-record-stock-${product.id}`}
+                            >
+                              <Package className="w-4 h-4 text-muted-foreground hover:text-primary" />
+                            </Button>
+                          )}
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            onClick={() => { setHistoryProduct(product); setHistoryVariant(null); }}
+                            title="View History"
+                            data-testid={`button-view-history-${product.id}`}
+                          >
+                            <History className="w-4 h-4 text-muted-foreground hover:text-primary" />
+                          </Button>
+                          <Button variant="ghost" size="icon" onClick={() => setEditingProduct(product)} data-testid={`button-edit-product-${product.id}`}>
+                            <Pencil className="w-4 h-4 text-muted-foreground hover:text-primary" />
+                          </Button>
+                          <Button variant="ghost" size="icon" onClick={() => handleDelete(product.id)} data-testid={`button-delete-product-${product.id}`}>
+                            <Trash2 className="w-4 h-4 text-muted-foreground hover:text-destructive" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                    {/* Variant sub-rows */}
+                    {hasVariants && isExpanded && product.variants!.map((variant) => (
+                      <TableRow key={`v-${variant.id}`} className="bg-muted/20">
+                        <TableCell className="pl-12 font-medium text-sm text-muted-foreground">
+                          <div className="flex items-center gap-2">
+                            {variant.image_url && (
+                              <img src={variant.image_url} alt={variant.name} className="w-7 h-7 rounded object-cover border" />
+                            )}
+                            <span>↳ {variant.name}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="font-mono text-xs text-muted-foreground">{variant.sku}</TableCell>
+                        <TableCell />
+                        <TableCell className="text-right">{formatCurrency(variant.price)}</TableCell>
+                        <TableCell className="text-right">
+                          <span className={variant.stock_quantity < 10 ? "text-red-500 font-bold" : ""}>
+                            {variant.stock_quantity}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => { setRecordStockProduct(product); setRecordStockVariant(variant); }}
+                              title="Record Stock"
+                            >
+                              <Package className="w-4 h-4 text-muted-foreground hover:text-primary" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => { setHistoryProduct(product); setHistoryVariant(variant); }}
+                              title="View History"
+                            >
+                              <History className="w-4 h-4 text-muted-foreground hover:text-primary" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </React.Fragment>
+                );
+              })
             )}
           </TableBody>
         </Table>
@@ -217,20 +322,31 @@ export default function Inventory() {
       {recordStockProduct && (
         <RecordStockDialog
           open={!!recordStockProduct}
-          onOpenChange={(open: boolean) => !open && setRecordStockProduct(null)}
+          onOpenChange={(open: boolean) => { if (!open) { setRecordStockProduct(null); setRecordStockVariant(null); } }}
           product={recordStockProduct}
+          variant={recordStockVariant}
         />
       )}
 
       {historyProduct && (
         <InventoryHistoryDialog
           open={!!historyProduct}
-          onOpenChange={(open: boolean) => !open && setHistoryProduct(null)}
+          onOpenChange={(open: boolean) => { if (!open) { setHistoryProduct(null); setHistoryVariant(null); } }}
           product={historyProduct}
+          variant={historyVariant}
         />
       )}
     </div>
   );
+}
+
+interface VariantFormRow {
+  name: string;
+  sku: string;
+  price: string; // stored as string for input control, converted on submit
+  stockQuantity: string;
+  imageUrl: string | null; // existing URL from DB
+  imageFile: File | null;  // new file to upload
 }
 
 function ProductDialog({ open, onOpenChange, mode, defaultValues, categories }: any) {
@@ -238,12 +354,55 @@ function ProductDialog({ open, onOpenChange, mode, defaultValues, categories }: 
   const { symbol } = useCurrency();
   const createProduct = useCreateProduct();
   const updateProduct = useUpdateProduct();
+  const createVariant = useCreateProductVariant();
+  const updateVariant = useUpdateProductVariant();
+  const deleteVariant = useDeleteProductVariant();
   const createCategory = useCreateCategory();
   const deleteCategory = useDeleteCategory();
   const [showNewCategory, setShowNewCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [showCategoryManager, setShowCategoryManager] = useState(false);
-  
+  const [hasVariants, setHasVariants] = useState(defaultValues?.has_variants || false);
+
+  // For edit mode, track existing variant IDs so we know which to update vs create
+  const [variantRows, setVariantRows] = useState<(VariantFormRow & { existingId?: number })[]>(
+    defaultValues?.has_variants && defaultValues?.variants?.length > 0
+      ? defaultValues.variants.map((v: any) => ({
+          existingId: v.id,
+          name: v.name,
+          sku: v.sku,
+          price: centsToDecimal(v.price).toString(),
+          stockQuantity: v.stock_quantity.toString(),
+          imageUrl: v.image_url || null,
+          imageFile: null,
+        }))
+      : [{ name: "", sku: "", price: "0", stockQuantity: "0", imageUrl: null, imageFile: null }]
+  );
+  const [deletedVariantIds, setDeletedVariantIds] = useState<number[]>([]);
+  // Product-level image
+  const [productImageUrl, setProductImageUrl] = useState<string | null>(defaultValues?.image_url || null);
+  const [productImageFile, setProductImageFile] = useState<File | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+
+  const addVariantRow = () => {
+    setVariantRows([...variantRows, { name: "", sku: "", price: "0", stockQuantity: "0", imageUrl: null, imageFile: null }]);
+  };
+
+  const removeVariantRow = (index: number) => {
+    if (variantRows.length <= 1) return;
+    const removed = variantRows[index];
+    if (removed.existingId) {
+      setDeletedVariantIds(prev => [...prev, removed.existingId!]);
+    }
+    setVariantRows(variantRows.filter((_, i) => i !== index));
+  };
+
+  const updateVariantRow = (index: number, field: keyof VariantFormRow, value: string) => {
+    const updated = [...variantRows];
+    updated[index] = { ...updated[index], [field]: value };
+    setVariantRows(updated);
+  };
+
   // Convert price from cents to decimal for editing
   const formDefaults = defaultValues 
     ? { ...defaultValues, price: centsToDecimal(defaultValues.price || 0) }
@@ -288,21 +447,101 @@ function ProductDialog({ open, onOpenChange, mode, defaultValues, categories }: 
   };
 
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
+    // Validate variant rows early (before uploading images)
+    if (hasVariants) {
+      for (const row of variantRows) {
+        if (!row.name.trim()) { toast({ title: "Variant name is required", variant: "destructive" }); return; }
+        if (!row.sku.trim()) { toast({ title: "Variant SKU is required", variant: "destructive" }); return; }
+      }
+    }
+
+    setIsUploading(true);
     try {
       // Convert price from decimal to cents for storage
       const dataToSubmit = { ...values, price: decimalToCents(values.price) };
+
+      // Upload product image if a new file was selected (only for non-variant products)
+      let finalProductImageUrl = hasVariants ? null : productImageUrl;
+      if (!hasVariants && productImageFile) {
+        finalProductImageUrl = await uploadProductImage(productImageFile);
+      }
+
+      // Upload all variant images in parallel
+      let variantsWithUrls: { name: string; sku: string; price: number; stockQuantity: number; imageUrl: string | null }[] = [];
+      if (hasVariants) {
+        variantsWithUrls = await Promise.all(
+          variantRows.map(async (r) => {
+            let imgUrl: string | null = r.imageUrl;
+            if (r.imageFile) {
+              imgUrl = await uploadProductImage(r.imageFile);
+            }
+            return {
+              name: r.name,
+              sku: r.sku,
+              price: decimalToCents(parseFloat(r.price) || 0),
+              stockQuantity: parseInt(r.stockQuantity) || 0,
+              imageUrl: imgUrl,
+            };
+          })
+        );
+      }
       
       if (mode === "create") {
-        await createProduct.mutateAsync(dataToSubmit as InsertProduct);
+        if (hasVariants) {
+          await createProduct.mutateAsync({
+            ...dataToSubmit,
+            imageUrl: undefined, // no product-level image for variant products
+            hasVariants: true,
+            variants: variantsWithUrls,
+          } as any);
+        } else {
+          await createProduct.mutateAsync({ ...dataToSubmit, imageUrl: finalProductImageUrl || undefined } as InsertProduct);
+        }
         toast({ title: "Product created successfully" });
       } else {
-        await updateProduct.mutateAsync({ id: defaultValues.id, ...dataToSubmit } as any);
+        // Edit mode — update the product itself
+        await updateProduct.mutateAsync({ id: defaultValues.id, ...dataToSubmit, imageUrl: finalProductImageUrl } as any);
+
+        // If this product has variants, handle variant changes
+        if (hasVariants) {
+          // Delete removed variants
+          for (const varId of deletedVariantIds) {
+            await deleteVariant.mutateAsync({ id: varId, productId: defaultValues.id });
+          }
+
+          // Update existing variants & create new ones
+          for (let i = 0; i < variantRows.length; i++) {
+            const row = variantRows[i];
+            const imgUrl = variantsWithUrls[i]?.imageUrl ?? row.imageUrl;
+
+            if (row.existingId) {
+              await updateVariant.mutateAsync({
+                id: row.existingId,
+                name: row.name.trim(),
+                sku: row.sku.trim(),
+                price: decimalToCents(parseFloat(row.price) || 0),
+                imageUrl: imgUrl,
+              });
+            } else {
+              await createVariant.mutateAsync({
+                productId: defaultValues.id,
+                name: row.name.trim(),
+                sku: row.sku.trim(),
+                price: decimalToCents(parseFloat(row.price) || 0),
+                stockQuantity: parseInt(row.stockQuantity) || 0,
+                imageUrl: imgUrl,
+              });
+            }
+          }
+        }
         toast({ title: "Product updated successfully" });
       }
       onOpenChange(false);
       form.reset();
     } catch (error: any) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
+    } finally {
+      setIsUploading(false);
     }
   };
 
@@ -325,6 +564,45 @@ function ProductDialog({ open, onOpenChange, mode, defaultValues, categories }: 
                 </FormItem>
               )}
             />
+
+            {/* Product image upload */}
+            {!hasVariants && (
+              <div className="space-y-2">
+                <Label className="text-sm">Product Image</Label>
+                <div className="flex items-center gap-3">
+                  {(productImageFile || productImageUrl) ? (
+                    <div className="relative w-16 h-16 rounded-lg overflow-hidden border bg-muted">
+                      <img
+                        src={productImageFile ? URL.createObjectURL(productImageFile) : productImageUrl!}
+                        alt="Product"
+                        className="w-full h-full object-cover"
+                      />
+                      <button
+                        type="button"
+                        className="absolute top-0 right-0 bg-destructive text-white rounded-bl p-0.5"
+                        onClick={() => { setProductImageFile(null); setProductImageUrl(null); }}
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ) : (
+                    <label className="w-16 h-16 rounded-lg border-2 border-dashed border-muted-foreground/30 flex items-center justify-center cursor-pointer hover:border-primary/50 transition-colors">
+                      <ImagePlus className="w-5 h-5 text-muted-foreground" />
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          const f = e.target.files?.[0];
+                          if (f) setProductImageFile(f);
+                        }}
+                      />
+                    </label>
+                  )}
+                  <span className="text-xs text-muted-foreground">Click to upload an image</span>
+                </div>
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-4">
               <FormField
                 control={form.control}
@@ -443,30 +721,153 @@ function ProductDialog({ open, onOpenChange, mode, defaultValues, categories }: 
               </div>
             )}
             
-            <div className="grid grid-cols-2 gap-4">
-              <FormField
-                control={form.control}
-                name="price"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Price ({symbol})</FormLabel>
-                    <FormControl><Input type="number" step="0.01" placeholder="0.00" {...field} data-testid="input-product-price" /></FormControl>
-                    <FormMessage />
-                  </FormItem>
+            {/* Variant toggle (only in create mode) */}
+            {mode === "create" && (
+              <div className="flex items-center justify-between border rounded-lg p-3 bg-muted/20">
+                <div>
+                  <Label htmlFor="has-variants" className="font-medium">This product has variants</Label>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    e.g. sizes, colors — each variant has its own SKU, price, and stock
+                  </p>
+                </div>
+                <Switch id="has-variants" checked={hasVariants} onCheckedChange={setHasVariants} />
+              </div>
+            )}
+
+            {/* Price/Stock for non-variant products */}
+            {!hasVariants && (
+              <div className="grid grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
+                  name="price"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Price ({symbol})</FormLabel>
+                      <FormControl><Input type="number" step="0.01" placeholder="0.00" {...field} data-testid="input-product-price" /></FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="stockQuantity"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Stock</FormLabel>
+                      <FormControl><Input type="number" {...field} data-testid="input-product-stock" /></FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+            )}
+
+            {/* Variant rows — shown in both create and edit mode */}
+            {hasVariants && (
+              <div className="border rounded-lg p-3 bg-muted/20 space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label className="font-medium">Variants</Label>
+                  <Button type="button" variant="outline" size="sm" onClick={addVariantRow}>
+                    <Plus className="w-3 h-3 mr-1" /> Add Variant
+                  </Button>
+                </div>
+                {variantRows.map((row, idx) => (
+                  <div key={row.existingId ?? `new-${idx}`} className="flex gap-2 items-end">
+                    {/* Variant image thumbnail */}
+                    <div className="flex-shrink-0">
+                      {idx === 0 && <Label className="text-xs block mb-1">&nbsp;</Label>}
+                      {(row.imageFile || row.imageUrl) ? (
+                        <div className="relative w-9 h-9 rounded overflow-hidden border bg-muted">
+                          <img
+                            src={row.imageFile ? URL.createObjectURL(row.imageFile) : row.imageUrl!}
+                            alt={row.name || 'Variant'}
+                            className="w-full h-full object-cover"
+                          />
+                          <button
+                            type="button"
+                            className="absolute top-0 right-0 bg-destructive text-white rounded-bl p-0.5"
+                            onClick={() => {
+                              const updated = [...variantRows];
+                              updated[idx] = { ...updated[idx], imageFile: null, imageUrl: null };
+                              setVariantRows(updated);
+                            }}
+                          >
+                            <X className="w-2.5 h-2.5" />
+                          </button>
+                        </div>
+                      ) : (
+                        <label className="w-9 h-9 rounded border-2 border-dashed border-muted-foreground/30 flex items-center justify-center cursor-pointer hover:border-primary/50 transition-colors">
+                          <ImagePlus className="w-3.5 h-3.5 text-muted-foreground" />
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={(e) => {
+                              const f = e.target.files?.[0];
+                              if (f) {
+                                const updated = [...variantRows];
+                                updated[idx] = { ...updated[idx], imageFile: f };
+                                setVariantRows(updated);
+                              }
+                            }}
+                          />
+                        </label>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      {idx === 0 && <Label className="text-xs">Name</Label>}
+                      <Input
+                        placeholder="e.g. Small"
+                        value={row.name}
+                        onChange={(e) => updateVariantRow(idx, 'name', e.target.value)}
+                      />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      {idx === 0 && <Label className="text-xs">SKU</Label>}
+                      <Input
+                        placeholder="SKU"
+                        value={row.sku}
+                        onChange={(e) => updateVariantRow(idx, 'sku', e.target.value)}
+                      />
+                    </div>
+                    <div className="w-24">
+                      {idx === 0 && <Label className="text-xs">Price ({symbol})</Label>}
+                      <Input
+                        type="number"
+                        step="0.01"
+                        placeholder="0.00"
+                        value={row.price}
+                        onChange={(e) => updateVariantRow(idx, 'price', e.target.value)}
+                      />
+                    </div>
+                    {mode === "create" && (
+                      <div className="w-20">
+                        {idx === 0 && <Label className="text-xs">Stock</Label>}
+                        <Input
+                          type="number"
+                          placeholder="0"
+                          value={row.stockQuantity}
+                          onChange={(e) => updateVariantRow(idx, 'stockQuantity', e.target.value)}
+                        />
+                      </div>
+                    )}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-9 w-9 flex-shrink-0"
+                      onClick={() => removeVariantRow(idx)}
+                      disabled={variantRows.length <= 1}
+                    >
+                      <Trash2 className="w-3.5 h-3.5 text-destructive" />
+                    </Button>
+                  </div>
+                ))}
+                {mode === "edit" && (
+                  <p className="text-xs text-muted-foreground">Stock is managed via the Record Stock button on each variant row.</p>
                 )}
-              />
-              <FormField
-                control={form.control}
-                name="stockQuantity"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Stock</FormLabel>
-                    <FormControl><Input type="number" {...field} data-testid="input-product-stock" /></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
+              </div>
+            )}
             <FormField
               control={form.control}
               name="description"
@@ -478,8 +879,8 @@ function ProductDialog({ open, onOpenChange, mode, defaultValues, categories }: 
                 </FormItem>
               )}
             />
-            <Button type="submit" className="w-full" disabled={createProduct.isPending || updateProduct.isPending} data-testid="button-save-product">
-              {createProduct.isPending || updateProduct.isPending ? "Saving..." : "Save Product"}
+            <Button type="submit" className="w-full" disabled={isUploading || createProduct.isPending || updateProduct.isPending} data-testid="button-save-product">
+              {isUploading ? "Uploading images..." : createProduct.isPending || updateProduct.isPending ? "Saving..." : "Save Product"}
             </Button>
           </form>
         </Form>
@@ -497,9 +898,11 @@ const recordStockSchema = z.object({
   movementDate: z.string().optional(),
 });
 
-function RecordStockDialog({ open, onOpenChange, product }: { open: boolean; onOpenChange: (open: boolean) => void; product: ProductResponse }) {
+function RecordStockDialog({ open, onOpenChange, product, variant }: { open: boolean; onOpenChange: (open: boolean) => void; product: Product; variant?: ProductVariant | null }) {
   const { toast } = useToast();
   const createMovement = useCreateInventoryMovement();
+  const currentStock = variant ? variant.stock_quantity : product.stock_quantity;
+  const displayName = variant ? `${product.name} — ${variant.name}` : product.name;
   
   const form = useForm<z.infer<typeof recordStockSchema>>({
     resolver: zodResolver(recordStockSchema),
@@ -519,16 +922,14 @@ function RecordStockDialog({ open, onOpenChange, product }: { open: boolean; onO
       // Determine sign based on movement type
       let quantityChange = values.quantity;
       if (values.movementType === "sale") {
-        // Sales are always negative
         quantityChange = -values.quantity;
       } else if (values.movementType === "adjustment") {
-        // Adjustments can be increase or decrease based on direction selector
         quantityChange = values.adjustmentDirection === "decrease" ? -values.quantity : values.quantity;
       }
-      // Purchase and return are always positive (add stock)
 
       await createMovement.mutateAsync({
         productId: product.id,
+        variantId: variant?.id || null,
         movementType: values.movementType,
         quantityChange,
         notes: values.notes,
@@ -567,11 +968,11 @@ function RecordStockDialog({ open, onOpenChange, product }: { open: boolean; onO
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Package className="w-5 h-5" />
-            Record Stock for {product.name}
+            Record Stock for {displayName}
           </DialogTitle>
         </DialogHeader>
         <div className="text-sm text-muted-foreground mb-4">
-          Current stock: <span className="font-semibold text-foreground">{product.stock_quantity}</span> units
+          Current stock: <span className="font-semibold text-foreground">{currentStock}</span> units
         </div>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
@@ -691,10 +1092,12 @@ function RecordStockDialog({ open, onOpenChange, product }: { open: boolean; onO
   );
 }
 
-function InventoryHistoryDialog({ open, onOpenChange, product }: { open: boolean; onOpenChange: (open: boolean) => void; product: ProductResponse }) {
+function InventoryHistoryDialog({ open, onOpenChange, product, variant }: { open: boolean; onOpenChange: (open: boolean) => void; product: Product; variant?: ProductVariant | null }) {
   const [checkDate, setCheckDate] = useState(format(new Date(), "yyyy-MM-dd"));
-  const { data: movements, isLoading } = useInventoryMovements(product.id);
+  const { data: movements, isLoading } = useInventoryMovements(product.id, variant?.id);
   const { data: stockAtDate, isLoading: loadingStockAtDate } = useStockAtDate(product.id, checkDate, !!checkDate);
+  const displayName = variant ? `${product.name} — ${variant.name}` : product.name;
+  const currentStock = variant ? variant.stock_quantity : product.stock_quantity;
 
   const getMovementIcon = (type: string, change: number) => {
     if (change > 0) return <ArrowUpCircle className="w-4 h-4 text-green-500" />;
@@ -718,7 +1121,7 @@ function InventoryHistoryDialog({ open, onOpenChange, product }: { open: boolean
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <History className="w-5 h-5" />
-            Inventory History: {product.name}
+            Inventory History: {displayName}
           </DialogTitle>
         </DialogHeader>
         
@@ -726,7 +1129,7 @@ function InventoryHistoryDialog({ open, onOpenChange, product }: { open: boolean
           <div className="flex items-center gap-4 flex-wrap">
             <div>
               <div className="text-xs text-muted-foreground">Current Stock</div>
-              <div className="text-2xl font-bold">{product.stock_quantity}</div>
+              <div className="text-2xl font-bold">{currentStock}</div>
             </div>
             <div className="flex-1 flex items-end gap-2">
               <div className="flex-1">
@@ -779,7 +1182,10 @@ function InventoryHistoryDialog({ open, onOpenChange, product }: { open: boolean
                     <TableCell>
                       <div className="flex items-center gap-2">
                         {getMovementIcon(m.movement_type, m.quantity_change)}
-                        <span className="text-sm">{formatMovementType(m.movement_type)}</span>
+                        <span className="text-sm">
+                          {formatMovementType(m.movement_type)}
+                          {m.variant && <span className="text-muted-foreground ml-1">({m.variant.name})</span>}
+                        </span>
                       </div>
                     </TableCell>
                     <TableCell className={cn("text-right font-mono", m.quantity_change > 0 ? "text-green-600" : "text-red-600")}>

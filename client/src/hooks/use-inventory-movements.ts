@@ -7,6 +7,7 @@ export interface InventoryMovement {
   id: number;
   business_id: string;
   product_id: number;
+  variant_id: number | null;
   movement_type: string;
   quantity_change: number;
   balance_after: number;
@@ -15,20 +16,27 @@ export interface InventoryMovement {
   movement_date: string;
   created_at: string;
   product?: Product;
+  variant?: { id: number; name: string; sku: string } | null;
 }
 
-export function useInventoryMovements(productId: number) {
+export function useInventoryMovements(productId: number, variantId?: number | null) {
   return useQuery({
-    queryKey: ['inventory-movements', 'product', productId],
+    queryKey: ['inventory-movements', 'product', productId, variantId],
     queryFn: async () => {
-      const { data, error } = await supabase
+      let query = supabase
         .from('inventory_movements')
         .select(`
           *,
-          product:products(*)
+          product:products(*),
+          variant:product_variants(id, name, sku)
         `)
-        .eq('product_id', productId)
-        .order('movement_date', { ascending: false });
+        .eq('product_id', productId);
+
+      if (variantId) {
+        query = query.eq('variant_id', variantId);
+      }
+
+      const { data, error } = await query.order('movement_date', { ascending: false });
 
       if (error) throw error;
       return data as InventoryMovement[];
@@ -106,6 +114,7 @@ export function useCreateInventoryMovement() {
   return useMutation({
     mutationFn: async (movement: {
       productId: number;
+      variantId?: number | null;
       movementType: string;
       quantityChange: number;
       notes?: string;
@@ -113,22 +122,50 @@ export function useCreateInventoryMovement() {
     }) => {
       if (!user?.businessId) throw new Error('No business selected');
 
-      // Get current product stock
-      const { data: product, error: productError } = await supabase
-        .from('products')
-        .select('stock_quantity')
-        .eq('id', movement.productId)
-        .single();
+      let newBalance: number;
 
-      if (productError) throw productError;
-      if (!product) throw new Error('Product not found');
+      if (movement.variantId) {
+        // Variant-level stock management
+        const { data: variant, error: variantError } = await supabase
+          .from('product_variants')
+          .select('stock_quantity')
+          .eq('id', movement.variantId)
+          .single();
 
-      // Calculate new balance
-      const newBalance = product.stock_quantity + movement.quantityChange;
+        if (variantError) throw variantError;
+        if (!variant) throw new Error('Variant not found');
 
-      // Ensure stock doesn't go negative
-      if (newBalance < 0) {
-        throw new Error('Insufficient stock');
+        newBalance = variant.stock_quantity + movement.quantityChange;
+        if (newBalance < 0) throw new Error('Insufficient stock');
+
+        // Update variant stock
+        const { error: updateError } = await supabase
+          .from('product_variants')
+          .update({ stock_quantity: newBalance })
+          .eq('id', movement.variantId);
+
+        if (updateError) throw updateError;
+      } else {
+        // Product-level stock management (existing behavior)
+        const { data: product, error: productError } = await supabase
+          .from('products')
+          .select('stock_quantity')
+          .eq('id', movement.productId)
+          .single();
+
+        if (productError) throw productError;
+        if (!product) throw new Error('Product not found');
+
+        newBalance = product.stock_quantity + movement.quantityChange;
+        if (newBalance < 0) throw new Error('Insufficient stock');
+
+        // Update product stock
+        const { error: updateError } = await supabase
+          .from('products')
+          .update({ stock_quantity: newBalance })
+          .eq('id', movement.productId);
+
+        if (updateError) throw updateError;
       }
 
       // Create inventory movement
@@ -137,6 +174,7 @@ export function useCreateInventoryMovement() {
         .insert({
           business_id: user.businessId,
           product_id: movement.productId,
+          variant_id: movement.variantId || null,
           movement_type: movement.movementType,
           quantity_change: movement.quantityChange,
           balance_after: newBalance,
@@ -148,18 +186,11 @@ export function useCreateInventoryMovement() {
 
       if (movementError) throw movementError;
 
-      // Update product stock
-      const { error: updateError } = await supabase
-        .from('products')
-        .update({ stock_quantity: newBalance })
-        .eq('id', movement.productId);
-
-      if (updateError) throw updateError;
-
       return inventoryMovement as InventoryMovement;
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['inventory-movements', 'product', variables.productId] });
+      queryClient.invalidateQueries({ queryKey: ['product-variants'] });
       queryClient.invalidateQueries({ queryKey: ['products', variables.productId] });
       queryClient.invalidateQueries({ queryKey: ['products'] });
     },
