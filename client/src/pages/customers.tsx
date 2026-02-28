@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { useCustomers, useCreateCustomer, useCreateLedgerEntry, useCustomerLedger } from "@/hooks/use-customers";
+import { useCustomers, useCustomer, useCreateCustomer, useCreateLedgerEntry, useCustomerLedger } from "@/hooks/use-customers";
 import { useCurrency } from "@/hooks/use-currency";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
@@ -336,7 +336,9 @@ function CreateCustomerDialog({ open, onOpenChange }: any) {
   );
 }
 
-function CustomerDetailsDialog({ customer, open, onOpenChange }: any) {
+function CustomerDetailsDialog({ customer: customerProp, open, onOpenChange }: any) {
+  const { data: freshCustomer } = useCustomer(customerProp.id);
+  const customer = freshCustomer || customerProp;
   const { data: ledger } = useCustomerLedger(customer.id);
   const createLedgerEntry = useCreateLedgerEntry();
   const { toast } = useToast();
@@ -419,13 +421,16 @@ function CustomerDetailsDialog({ customer, open, onOpenChange }: any) {
     }
   });
 
+  const [entryDate, setEntryDate] = useState(() => format(new Date(), "yyyy-MM-dd"));
+
   const onEntrySubmit = async (values: any) => {
     try {
       const amountInCents = Math.round(values.amount * 100);
-      await createLedgerEntry.mutateAsync({ ...values, amount: amountInCents });
+      await createLedgerEntry.mutateAsync({ ...values, amount: amountInCents, entryDate: new Date(entryDate).toISOString() });
       toast({ title: "Entry added successfully" });
       setIsAddingEntry(false);
       entryForm.reset({ customerId: customer.id, type: "credit", amount: 0, description: "" });
+      setEntryDate(format(new Date(), "yyyy-MM-dd"));
     } catch (error: any) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     }
@@ -609,12 +614,15 @@ function CustomerDetailsDialog({ customer, open, onOpenChange }: any) {
                       <FormField
                         control={entryForm.control}
                         name="amount"
-                        render={({ field }) => (
-                          <FormItem className="flex-1 w-full">
-                            <FormLabel>Amount ({symbol})</FormLabel>
-                            <FormControl><Input type="number" step="0.01" min="0" placeholder="0.00" {...field} onChange={e => field.onChange(parseFloat(e.target.value) || 0)} /></FormControl>
-                          </FormItem>
-                        )}
+                        render={({ field }) => {
+                          const entryType = entryForm.watch("type");
+                          return (
+                            <FormItem className="flex-1 w-full">
+                              <FormLabel>Amount ({symbol})</FormLabel>
+                              <FormControl><Input type="number" step="0.01" min={entryType === "adjustment" ? undefined : "0"} placeholder="0.00" {...field} value={field.value ?? ''} onChange={e => { const val = e.target.value; if (val === '' || val === '-') { field.onChange(val as any); return; } field.onChange(parseFloat(val) || 0); }} onBlur={() => { if (field.value === '' || field.value === '-') field.onChange(0); }} /></FormControl>
+                            </FormItem>
+                          );
+                        }}
                       />
                       <FormField
                         control={entryForm.control}
@@ -626,6 +634,15 @@ function CustomerDetailsDialog({ customer, open, onOpenChange }: any) {
                           </FormItem>
                         )}
                       />
+                      <div className="space-y-2 w-full sm:w-auto">
+                        <FormLabel>Date</FormLabel>
+                        <Input 
+                          type="date" 
+                          value={entryDate} 
+                          onChange={(e) => setEntryDate(e.target.value)} 
+                          className="w-[140px]"
+                        />
+                      </div>
                       <Button type="submit" disabled={createLedgerEntry.isPending}>Save</Button>
                     </form>
                   </Form>

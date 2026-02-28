@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useOrders, usePaginatedOrders, useOrderCounts, useOrderTabTotals, useCreateOrder, useUpdateOrderStatus, useEditOrder, useUpdatePaymentStatus, useNextVatBillNumber } from "@/hooks/use-orders";
+import { useOrders, usePaginatedOrders, useOrderCounts, useOrderTabTotals, useCreateOrder, useUpdateOrderStatus, useEditOrder, useDeleteOrder, useUpdatePaymentStatus, useNextVatBillNumber } from "@/hooks/use-orders";
 import { useCustomers, useCreateCustomer } from "@/hooks/use-customers";
 import { Label } from "@/components/ui/label";
 import { useProducts } from "@/hooks/use-products";
 import { useCurrency } from "@/hooks/use-currency";
 import { useAuth } from "@/hooks/use-auth";
 import { useCustomerTypes } from "@/hooks/use-customer-types";
+import { useCategories } from "@/hooks/use-categories";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -677,7 +678,9 @@ function VatCalculationsDialog({ order, formatCurrency, open, onOpenChange }: { 
             <div className="text-muted-foreground">Phone</div>
             <div data-testid="vat-customer-phone">{order.customer?.phone || '-'}</div>
             <div className="text-muted-foreground">PAN/VAT Number</div>
-            <div data-testid="vat-customer-pan">{order.customer?.panVatNumber || '-'}</div>
+            <div data-testid="vat-customer-pan">{order.customer?.pan_vat_number || '-'}</div>
+            <div className="text-muted-foreground">VAT Bill Number</div>
+            <div data-testid="vat-bill-number">{order.vat_bill_number || '-'}</div>
           </div>
 
           <Table>
@@ -758,7 +761,7 @@ function OrderDetails({ order, formatCurrency }: { order: any; formatCurrency: (
                       {formatCurrency(item.unit_price)} each
                       {hasDiscount && (
                         <span className="text-green-600 ml-2">
-                          (-{formatCurrency(item.discount)} discount)
+                          (-{formatCurrency(item.discount)} / {item.unit_price > 0 ? Math.round((item.discount / item.unit_price) * 100) : 0}% discount)
                         </span>
                       )}
                     </div>
@@ -822,6 +825,8 @@ function EditOrderDialog({ order, open, onOpenChange }: { order: any; open: bool
   const { formatCurrency, symbol } = useCurrency();
   const { toast } = useToast();
   const editOrder = useEditOrder();
+  const deleteOrder = useDeleteOrder();
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   
   const [note, setNote] = useState(order?.note || "");
   const [orderDate, setOrderDate] = useState(() => order?.order_date ? format(new Date(order.order_date), "yyyy-MM-dd") : format(new Date(), "yyyy-MM-dd"));
@@ -977,13 +982,52 @@ function EditOrderDialog({ order, open, onOpenChange }: { order: any; open: bool
           </div>
         </div>
         
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={handleSave} disabled={editOrder.isPending} data-testid="button-save-order-edit">
-            {editOrder.isPending ? "Saving..." : "Save Changes"}
+        <DialogFooter className="flex !justify-between">
+          <Button 
+            variant="destructive" 
+            onClick={() => setShowDeleteConfirm(true)} 
+            disabled={deleteOrder.isPending}
+          >
+            <Trash2 className="w-4 h-4 mr-1" />
+            {deleteOrder.isPending ? "Deleting..." : "Delete Order"}
           </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+            <Button onClick={handleSave} disabled={editOrder.isPending} data-testid="button-save-order-edit">
+              {editOrder.isPending ? "Saving..." : "Save Changes"}
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
+
+      <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Order #{order?.id}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete this order. All inventory, ledger, and balance changes will be reversed, and the VAT bill number will be freed for reuse. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={async () => {
+                try {
+                  await deleteOrder.mutateAsync(order.id);
+                  toast({ title: "Order deleted successfully" });
+                  setShowDeleteConfirm(false);
+                  onOpenChange(false);
+                } catch (error: any) {
+                  toast({ title: "Error", description: error.message, variant: "destructive" });
+                }
+              }}
+            >
+              Delete Permanently
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }
@@ -1007,17 +1051,19 @@ function ProductRow({
   onAdd: (quantity: number, discountPercent: number) => void;
   onRemove: () => void;
 }) {
-  const [quantity, setQuantity] = useState(cartQuantity);
-  const [discountPercent, setDiscountPercent] = useState(cartDiscountPercent);
+  const [quantity, setQuantity] = useState<number | ''>(cartQuantity);
+  const [discountPercent, setDiscountPercent] = useState<number | ''>(cartDiscountPercent);
 
   const price = variant ? variant.price : product.price;
   const stock = variant ? variant.stock_quantity : (product.stock_quantity ?? product.stockQuantity ?? 0);
   const displayName = variant ? `${product.name} — ${variant.name}` : product.name;
   const rowKey = variant ? `${product.id}-${variant.id}` : product.id;
   
-  const discountAmount = Math.round(price * discountPercent / 100);
+  const numQty = quantity === '' ? 1 : quantity;
+  const numDisc = discountPercent === '' ? 0 : discountPercent;
+  const discountAmount = Math.round(price * numDisc / 100);
   const effectivePrice = Math.max(0, price - discountAmount);
-  const lineTotal = effectivePrice * quantity;
+  const lineTotal = effectivePrice * numQty;
   
   const imageUrl = variant?.image_url || product.image_url || null;
 
@@ -1038,7 +1084,7 @@ function ProductRow({
           <div className="min-w-0">
             <div className="font-medium truncate">{displayName}</div>
             <div className="text-xs text-muted-foreground">
-              Stock: {stock} | Base price: {formatCurrency(price)}
+              <span className={stock <= 0 ? "text-red-500 font-medium" : ""}>Stock: {stock}</span> | Base price: {formatCurrency(price)}
               {variant && <span className="ml-1">| SKU: {variant.sku}</span>}
             </div>
           </div>
@@ -1051,7 +1097,12 @@ function ProductRow({
               <Input 
                 type="number" 
                 value={quantity} 
-                onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value) || 1))} 
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (val === '') { setQuantity(''); return; }
+                  setQuantity(Math.max(1, parseInt(val) || 1));
+                }}
+                onBlur={() => { if (quantity === '' || quantity < 1) setQuantity(1); }}
                 className="w-16 h-8 text-center no-spinners"
                 min={1}
                 max={stock}
@@ -1063,7 +1114,12 @@ function ProductRow({
               <Input 
                 type="number" 
                 value={discountPercent} 
-                onChange={(e) => setDiscountPercent(Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)))} 
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (val === '') { setDiscountPercent(''); return; }
+                  setDiscountPercent(Math.min(100, Math.max(0, parseFloat(val) || 0)));
+                }}
+                onBlur={() => { if (discountPercent === '') setDiscountPercent(0); }}
                 className="w-16 h-8 text-center no-spinners"
                 min={0}
                 max={100}
@@ -1076,8 +1132,8 @@ function ProductRow({
           
           <div className="text-right min-w-[80px]">
             <div className="font-mono font-medium text-sm">{formatCurrency(lineTotal)}</div>
-            {discountPercent > 0 && (
-              <div className="text-[10px] text-green-600">-{discountPercent}%</div>
+            {numDisc > 0 && (
+              <div className="text-[10px] text-green-600">-{numDisc}%</div>
             )}
           </div>
           
@@ -1094,7 +1150,7 @@ function ProductRow({
           ) : (
             <Button 
               size="sm" 
-              onClick={() => onAdd(quantity, discountPercent)} 
+              onClick={() => onAdd(numQty, numDisc)} 
               disabled={stock === 0}
               data-testid={`button-add-product-${rowKey}`}
             >
@@ -1126,10 +1182,12 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
   const [includeVat, setIncludeVat] = useState(false);
   const [vatBillNumber, setVatBillNumber] = useState("");
   const [deliveryFee, setDeliveryFee] = useState(0);
+  const [selectedCategory, setSelectedCategory] = useState<string>("all");
   
   const { data: customers } = useCustomers();
   const { data: products } = useProducts();
   const { data: customerTypes } = useCustomerTypes();
+  const { data: categories } = useCategories();
   const createOrder = useCreateOrder();
   const createCustomer = useCreateCustomer();
   const { toast } = useToast();
@@ -1458,44 +1516,75 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
                 <div className="text-sm text-muted-foreground">{cart.length} items in cart</div>
               </div>
               
+              <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="All Categories" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Categories</SelectItem>
+                  {categories?.map(cat => (
+                    <SelectItem key={cat.id} value={String(cat.id)}>{cat.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
               <div className="grid grid-cols-1 gap-3">
-                {products?.map(p => {
-                  if (p.has_variants && p.variants && p.variants.length > 0) {
-                    // Render a row per variant
-                    return p.variants.map(v => {
-                      const cartItem = cart.find(item => item.productId === p.id && item.variantId === v.id);
-                      const isInCart = !!cartItem;
+                {(() => {
+                  const filtered = products?.filter(p => {
+                    if (selectedCategory === 'all') return true;
+                    return String(p.category_id) === selectedCategory;
+                  }) || [];
+
+                  type PRow = { product: any; variant?: any; stock: number };
+                  const rows: PRow[] = [];
+                  for (const p of filtered) {
+                    if (p.has_variants && p.variants && p.variants.length > 0) {
+                      for (const v of p.variants) {
+                        rows.push({ product: p, variant: v, stock: v.stock_quantity ?? 0 });
+                      }
+                    } else {
+                      rows.push({ product: p, stock: p.stock_quantity ?? p.stockQuantity ?? 0 });
+                    }
+                  }
+                  rows.sort((a, b) => {
+                    const aOut = a.stock <= 0 ? 1 : 0;
+                    const bOut = b.stock <= 0 ? 1 : 0;
+                    return aOut - bOut;
+                  });
+
+                  return rows.map(row => {
+                    if (row.variant) {
+                      const cartItem = cart.find(item => item.productId === row.product.id && item.variantId === row.variant.id);
                       return (
                         <ProductRow 
-                          key={`${p.id}-${v.id}`} 
-                          product={p} 
-                          variant={v}
-                          isInCart={isInCart}
+                          key={`${row.product.id}-${row.variant.id}`} 
+                          product={row.product} 
+                          variant={row.variant}
+                          isInCart={!!cartItem}
                           cartQuantity={cartItem?.quantity || 1}
                           cartDiscountPercent={cartItem?.discountPercent || 0}
                           formatCurrency={formatCurrency}
-                          onAdd={(qty, discountPercent) => addToCart(p, qty, discountPercent, v)}
-                          onRemove={() => removeFromCart(p.id, v.id)}
+                          onAdd={(qty, discountPercent) => addToCart(row.product, qty, discountPercent, row.variant)}
+                          onRemove={() => removeFromCart(row.product.id, row.variant.id)}
                         />
                       );
-                    });
-                  } else {
-                    const cartItem = cart.find(item => item.productId === p.id && !item.variantId);
-                    const isInCart = !!cartItem;
-                    return (
-                      <ProductRow 
-                        key={p.id} 
-                        product={p} 
-                        isInCart={isInCart}
-                        cartQuantity={cartItem?.quantity || 1}
-                        cartDiscountPercent={cartItem?.discountPercent || 0}
-                        formatCurrency={formatCurrency}
-                        onAdd={(qty, discountPercent) => addToCart(p, qty, discountPercent)}
-                        onRemove={() => removeFromCart(p.id)}
-                      />
-                    );
-                  }
-                })}
+                    } else {
+                      const cartItem = cart.find(item => item.productId === row.product.id && !item.variantId);
+                      return (
+                        <ProductRow 
+                          key={row.product.id} 
+                          product={row.product} 
+                          isInCart={!!cartItem}
+                          cartQuantity={cartItem?.quantity || 1}
+                          cartDiscountPercent={cartItem?.discountPercent || 0}
+                          formatCurrency={formatCurrency}
+                          onAdd={(qty, discountPercent) => addToCart(row.product, qty, discountPercent)}
+                          onRemove={() => removeFromCart(row.product.id)}
+                        />
+                      );
+                    }
+                  });
+                })()}
               </div>
             </div>
           )}

@@ -619,6 +619,103 @@ export function useEditOrder() {
   });
 }
 
+export function useDeleteOrder() {
+  const queryClient = useQueryClient();
+  const { user } = useAuth();
+
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const { data: order, error: fetchErr } = await supabase
+        .from('orders')
+        .select('customer_id, total_amount, payment_status, status, vat_bill_number')
+        .eq('id', id)
+        .single();
+
+      if (fetchErr) throw fetchErr;
+
+      // Reverse side effects only if the order wasn't already cancelled
+      if (order.status !== 'cancelled') {
+        const { data: orderItems } = await supabase
+          .from('order_items')
+          .select('product_id, variant_id, quantity')
+          .eq('order_id', id);
+
+        if (orderItems) {
+          for (const item of orderItems) {
+            let restoredStock: number;
+
+            if (item.variant_id) {
+              const { data: variant } = await supabase
+                .from('product_variants')
+                .select('stock_quantity')
+                .eq('id', item.variant_id)
+                .single();
+              restoredStock = (variant?.stock_quantity ?? 0) + item.quantity;
+              await supabase.from('product_variants').update({ stock_quantity: restoredStock }).eq('id', item.variant_id);
+            } else {
+              const { data: product } = await supabase
+                .from('products')
+                .select('stock_quantity')
+                .eq('id', item.product_id)
+                .single();
+              restoredStock = (product?.stock_quantity ?? 0) + item.quantity;
+              await supabase.from('products').update({ stock_quantity: restoredStock }).eq('id', item.product_id);
+            }
+
+            if (user?.businessId) {
+              await supabase.from('inventory_movements').insert({
+                business_id: user.businessId,
+                product_id: item.product_id,
+                variant_id: item.variant_id || null,
+                movement_type: 'return',
+                quantity_change: item.quantity,
+                balance_after: restoredStock,
+                order_id: id,
+                notes: `Deleted order #${id} - stock restored`,
+                movement_date: new Date().toISOString(),
+              });
+            }
+          }
+        }
+
+        // Only reverse customer balance for Credit orders (COD/Bank Transfer don't affect balance on creation)
+        if (order.payment_status === 'Credit') {
+          const { data: customer } = await supabase
+            .from('customers')
+            .select('current_balance')
+            .eq('id', order.customer_id)
+            .single();
+
+          if (customer) {
+            await supabase.from('customers')
+              .update({ current_balance: customer.current_balance - order.total_amount })
+              .eq('id', order.customer_id);
+          }
+        }
+      }
+
+      // Delete ledger entries referencing this order
+      await supabase.from('ledger_entries').delete().eq('order_id', id);
+      // Delete inventory movements referencing this order
+      await supabase.from('inventory_movements').delete().eq('order_id', id);
+      // Delete order items (cascade should handle, but explicit)
+      await supabase.from('order_items').delete().eq('order_id', id);
+      // Delete the order itself
+      const { error: delErr } = await supabase.from('orders').delete().eq('id', id);
+      if (delErr) throw delErr;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['orders'] });
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      queryClient.invalidateQueries({ queryKey: ['inventory'] });
+      queryClient.invalidateQueries({ queryKey: ['vat'] });
+      queryClient.invalidateQueries({ queryKey: ['product-variants'] });
+      queryClient.invalidateQueries({ queryKey: ['ledger'] });
+    },
+  });
+}
+
 export function useUpdatePaymentStatus() {
   const queryClient = useQueryClient();
 

@@ -97,7 +97,7 @@ export function useCustomer(id: number) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('customers')
-        .select('*')
+        .select('*, customer_type:customer_types(id, name)')
         .eq('id', id)
         .single();
 
