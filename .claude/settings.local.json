@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:nodemailer.com)",
+      "WebFetch(domain:resend.com)"
+    ]
+  }
+}
