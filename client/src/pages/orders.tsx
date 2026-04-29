@@ -47,7 +47,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, ShoppingCart, Trash2, CheckCircle, XCircle, Clock, Package, Truck, ChevronDown, ChevronLeft, ChevronRight, FileText, Pencil, Search, DollarSign, ShoppingBag, X, Receipt, Upload, AlertCircle } from "lucide-react";
+import { Plus, ShoppingCart, Trash2, CheckCircle, XCircle, Clock, Package, Truck, ChevronDown, ChevronLeft, ChevronRight, FileText, Pencil, Search, DollarSign, ShoppingBag, X, Receipt, Upload, AlertCircle, Loader2 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
@@ -1169,6 +1169,7 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
   const [customerId, setCustomerId] = useState<string>("");
   const [cart, setCart] = useState<{ productId: number; variantId?: number; quantity: number; discountPercent: number; product: any; variant?: any }[]>([]);
   const [customerSearch, setCustomerSearch] = useState("");
+  const [debouncedCustomerSearch, setDebouncedCustomerSearch] = useState("");
   const [showNewCustomerForm, setShowNewCustomerForm] = useState(false);
   const [newCustomerName, setNewCustomerName] = useState("");
   const [newCustomerPhone, setNewCustomerPhone] = useState("");
@@ -1184,7 +1185,15 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
   const [deliveryFee, setDeliveryFee] = useState(0);
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   
-  const { data: customers } = useCustomers();
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedCustomerSearch(customerSearch), 300);
+    return () => clearTimeout(timer);
+  }, [customerSearch]);
+
+  // Server-side search: avoids the PostgREST max-rows cap hiding customers
+  // sorted to the bottom of the list (e.g. heavily-negative balances).
+  const { data: customers, isFetching: isFetchingCustomers } = useCustomers(debouncedCustomerSearch || undefined);
+  const isSearchingCustomers = customerSearch !== debouncedCustomerSearch || isFetchingCustomers;
   const { data: products } = useProducts();
   const { data: customerTypes } = useCustomerTypes();
   const { data: categories } = useCategories();
@@ -1200,13 +1209,8 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
       setVatBillNumber(String(nextVatNumber));
     }
   }, [includeVat, nextVatNumber]);
-  
-  const filteredCustomers = customers?.filter(c => {
-    if (!customerSearch) return true;
-    const search = customerSearch.toLowerCase();
-    return c.name.toLowerCase().includes(search) || 
-           (c.phone && c.phone.toLowerCase().includes(search));
-  }) || [];
+
+  const filteredCustomers = customers || [];
 
   const handleCreateCustomer = async () => {
     if (!newCustomerName.trim()) {
@@ -1475,16 +1479,29 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
                 </Card>
               )}
               
-              <Input 
-                placeholder="Search by name or phone..." 
-                value={customerSearch}
-                onChange={(e) => setCustomerSearch(e.target.value)}
-                className="max-w-sm"
-                data-testid="input-customer-search"
-              />
-              
+              <div className="relative max-w-sm">
+                <Input
+                  placeholder="Search by name or phone..."
+                  value={customerSearch}
+                  onChange={(e) => setCustomerSearch(e.target.value)}
+                  className="pr-9"
+                  data-testid="input-customer-search"
+                />
+                {isSearchingCustomers && (
+                  <Loader2
+                    className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground"
+                    data-testid="customer-search-loading"
+                  />
+                )}
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[300px] overflow-y-auto">
-                {filteredCustomers.length === 0 ? (
+                {isSearchingCustomers && filteredCustomers.length === 0 ? (
+                  <div className="col-span-2 flex items-center justify-center gap-2 py-8 text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>Searching customers...</span>
+                  </div>
+                ) : filteredCustomers.length === 0 ? (
                   <div className="col-span-2 text-center py-8 text-muted-foreground">
                     No customers found. Click "New Customer" to add one.
                   </div>
