@@ -17,6 +17,25 @@ export interface Customer {
   created_at: string;
 }
 
+export interface CustomerAging {
+  id: number;
+  bucket_0_30: number;     // cents
+  bucket_31_60: number;    // cents
+  bucket_61_90: number;    // cents
+  bucket_90_plus: number;  // cents
+  total_unpaid: number;    // cents
+}
+
+export interface CustomerWithAging extends Customer {
+  aging: {
+    bucket_0_30: number;
+    bucket_31_60: number;
+    bucket_61_90: number;
+    bucket_90_plus: number;
+    total_unpaid: number;
+  };
+}
+
 export interface LedgerEntry {
   id: number;
   business_id: string;
@@ -52,6 +71,62 @@ export function useCustomers(search?: string) {
       
       if (error) throw error;
       return data as Customer[];
+    },
+    enabled: !!user?.businessId,
+  });
+}
+
+export function useCustomersWithAging(search?: string) {
+  const { user } = useAuth();
+
+  return useQuery({
+    queryKey: ['customers-with-aging', user?.businessId, search],
+    queryFn: async () => {
+      // Fetch customers and aging buckets in parallel. We join client-side
+      // by id rather than via a Supabase nested-select because customer_aging
+      // is a view (no FK), and joining server-side would require extra config.
+      let customersQuery = supabase
+        .from('customers')
+        .select('*, customer_type:customer_types(id, name)');
+
+      if (search) {
+        customersQuery = customersQuery.or(
+          `name.ilike.%${search}%,email.ilike.%${search}%,phone.ilike.%${search}%`
+        );
+      }
+
+      const [customersRes, agingRes] = await Promise.all([
+        customersQuery
+          .order('current_balance', { ascending: false })
+          .order('name', { ascending: true })
+          .limit(10000),
+        supabase
+          .from('customer_aging')
+          .select('id, bucket_0_30, bucket_31_60, bucket_61_90, bucket_90_plus, total_unpaid')
+          .limit(10000),
+      ]);
+
+      if (customersRes.error) throw customersRes.error;
+      if (agingRes.error) throw agingRes.error;
+
+      const agingById = new Map<number, CustomerAging>();
+      for (const row of (agingRes.data || []) as CustomerAging[]) {
+        agingById.set(row.id, row);
+      }
+
+      return (customersRes.data || []).map((c: Customer) => {
+        const a = agingById.get(c.id);
+        return {
+          ...c,
+          aging: {
+            bucket_0_30: a?.bucket_0_30 ?? 0,
+            bucket_31_60: a?.bucket_31_60 ?? 0,
+            bucket_61_90: a?.bucket_61_90 ?? 0,
+            bucket_90_plus: a?.bucket_90_plus ?? 0,
+            total_unpaid: a?.total_unpaid ?? 0,
+          },
+        } as CustomerWithAging;
+      });
     },
     enabled: !!user?.businessId,
   });

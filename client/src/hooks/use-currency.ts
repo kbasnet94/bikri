@@ -31,10 +31,15 @@ export function useCurrency() {
     return `${symbol}${amount.toLocaleString()}`;
   };
 
+  const formatAmountWhole = (amountInCents: number): string => {
+    return Math.round(amountInCents / 100).toLocaleString();
+  };
+
   return {
     currencyCode,
     symbol,
     formatCurrency,
     formatCurrencyShort,
+    formatAmountWhole,
   };
 }
