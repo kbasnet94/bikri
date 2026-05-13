@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { useCustomers, useCustomer, useCreateCustomer, useCreateLedgerEntry, useCustomerLedger } from "@/hooks/use-customers";
+import { useCustomersWithAging, useCustomer, useCreateCustomer, useCreateLedgerEntry, useCustomerLedger } from "@/hooks/use-customers";
 import { useCurrency } from "@/hooks/use-currency";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
@@ -52,7 +52,7 @@ export default function Customers() {
   const [selectedCustomer, setSelectedCustomer] = useState<any | null>(null);
   const { formatCurrency, formatCurrencyShort } = useCurrency();
 
-  const { data: customers, isLoading } = useCustomers(search);
+  const { data: customers, isLoading } = useCustomersWithAging(search);
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
@@ -93,19 +93,22 @@ export default function Customers() {
             <TableRow className="bg-muted/30">
               <TableHead>Name</TableHead>
               <TableHead>Contact</TableHead>
-              <TableHead className="text-right">Credit Limit</TableHead>
               <TableHead className="text-right">Balance</TableHead>
+              <TableHead className="text-right whitespace-nowrap">0–30 d</TableHead>
+              <TableHead className="text-right whitespace-nowrap">31–60 d</TableHead>
+              <TableHead className="text-right whitespace-nowrap">61–90 d</TableHead>
+              <TableHead className="text-right whitespace-nowrap">90+ d</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={5} className="h-24 text-center">Loading...</TableCell>
+                <TableCell colSpan={8} className="h-24 text-center">Loading...</TableCell>
               </TableRow>
             ) : customers?.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">No customers found.</TableCell>
+                <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">No customers found.</TableCell>
               </TableRow>
             ) : (
               customers?.map((customer) => (
@@ -132,16 +135,36 @@ export default function Customers() {
                       )}
                     </div>
                   </TableCell>
-                  <TableCell className="text-right font-mono">{formatCurrencyShort(customer.credit_limit)}</TableCell>
                   <TableCell className="text-right">
                     <span className={cn(
                       "font-mono font-bold px-2 py-1 rounded-lg text-xs",
-                      customer.current_balance > 0 
-                        ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" 
+                      customer.current_balance > 0
+                        ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
                         : "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
                     )}>
                       {formatCurrencyShort(customer.current_balance)}
                     </span>
+                  </TableCell>
+                  <TableCell className="text-right font-mono text-xs text-muted-foreground">
+                    {customer.aging.bucket_0_30 > 0 ? formatCurrencyShort(customer.aging.bucket_0_30) : "—"}
+                  </TableCell>
+                  <TableCell className={cn(
+                    "text-right font-mono text-xs",
+                    customer.aging.bucket_31_60 > 0 ? "text-amber-700 dark:text-amber-400" : "text-muted-foreground"
+                  )}>
+                    {customer.aging.bucket_31_60 > 0 ? formatCurrencyShort(customer.aging.bucket_31_60) : "—"}
+                  </TableCell>
+                  <TableCell className={cn(
+                    "text-right font-mono text-xs",
+                    customer.aging.bucket_61_90 > 0 ? "text-orange-700 dark:text-orange-400" : "text-muted-foreground"
+                  )}>
+                    {customer.aging.bucket_61_90 > 0 ? formatCurrencyShort(customer.aging.bucket_61_90) : "—"}
+                  </TableCell>
+                  <TableCell className={cn(
+                    "text-right font-mono text-xs font-semibold",
+                    customer.aging.bucket_90_plus > 0 ? "text-red-700 dark:text-red-400" : "text-muted-foreground"
+                  )}>
+                    {customer.aging.bucket_90_plus > 0 ? formatCurrencyShort(customer.aging.bucket_90_plus) : "—"}
                   </TableCell>
                   <TableCell className="text-right">
                     <Button variant="outline" size="sm" onClick={() => setSelectedCustomer(customer)}>
