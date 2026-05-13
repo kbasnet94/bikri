@@ -50,7 +50,7 @@ export default function Customers() {
   const [isBulkUploadOpen, setIsBulkUploadOpen] = useState(false);
   const [isBulkLedgerOpen, setIsBulkLedgerOpen] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<any | null>(null);
-  const { formatCurrency, formatCurrencyShort } = useCurrency();
+  const { formatCurrency, formatCurrencyShort, formatAmountWhole } = useCurrency();
 
   const { data: customers, isLoading } = useCustomersWithAging(search);
 
@@ -142,29 +142,29 @@ export default function Customers() {
                         ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
                         : "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
                     )}>
-                      {formatCurrencyShort(customer.current_balance)}
+                      {formatAmountWhole(customer.current_balance)}
                     </span>
                   </TableCell>
                   <TableCell className="text-right font-mono text-xs text-muted-foreground">
-                    {customer.aging.bucket_0_30 > 0 ? formatCurrencyShort(customer.aging.bucket_0_30) : "—"}
+                    {customer.aging.bucket_0_30 > 0 ? formatAmountWhole(customer.aging.bucket_0_30) : "—"}
                   </TableCell>
                   <TableCell className={cn(
                     "text-right font-mono text-xs",
                     customer.aging.bucket_31_60 > 0 ? "text-amber-700 dark:text-amber-400" : "text-muted-foreground"
                   )}>
-                    {customer.aging.bucket_31_60 > 0 ? formatCurrencyShort(customer.aging.bucket_31_60) : "—"}
+                    {customer.aging.bucket_31_60 > 0 ? formatAmountWhole(customer.aging.bucket_31_60) : "—"}
                   </TableCell>
                   <TableCell className={cn(
                     "text-right font-mono text-xs",
                     customer.aging.bucket_61_90 > 0 ? "text-orange-700 dark:text-orange-400" : "text-muted-foreground"
                   )}>
-                    {customer.aging.bucket_61_90 > 0 ? formatCurrencyShort(customer.aging.bucket_61_90) : "—"}
+                    {customer.aging.bucket_61_90 > 0 ? formatAmountWhole(customer.aging.bucket_61_90) : "—"}
                   </TableCell>
                   <TableCell className={cn(
                     "text-right font-mono text-xs font-semibold",
                     customer.aging.bucket_90_plus > 0 ? "text-red-700 dark:text-red-400" : "text-muted-foreground"
                   )}>
-                    {customer.aging.bucket_90_plus > 0 ? formatCurrencyShort(customer.aging.bucket_90_plus) : "—"}
+                    {customer.aging.bucket_90_plus > 0 ? formatAmountWhole(customer.aging.bucket_90_plus) : "—"}
                   </TableCell>
                   <TableCell className="text-right">
                     <Button variant="outline" size="sm" onClick={() => setSelectedCustomer(customer)}>
