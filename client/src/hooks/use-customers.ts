@@ -90,31 +90,55 @@ export function useCustomersWithAging(search?: string) {
         .select('*, customer_type:customer_types(id, name)');
 
       if (search) {
+        // While searching, look across ALL customers (incl. zero-balance
+        // cash/COD clients) so they remain findable.
         customersQuery = customersQuery.or(
           `name.ilike.%${search}%,email.ilike.%${search}%,phone.ilike.%${search}%`
         );
+      } else {
+        // Default A/R view: only credit clients — those who currently owe.
+        // Zero-balance cash/COD clients have nothing to age and would only
+        // bloat the list past the row cap.
+        customersQuery = customersQuery.gt('current_balance', 0);
       }
 
-      const [customersRes, agingRes] = await Promise.all([
-        customersQuery
-          .order('current_balance', { ascending: false })
-          .order('name', { ascending: true })
-          .limit(10000),
-        supabase
-          .from('customer_aging')
-          .select('id, bucket_0_30, bucket_31_60, bucket_61_90, bucket_90_plus, total_unpaid')
-          .limit(10000),
-      ]);
+      const customersRes = await customersQuery
+        .order('current_balance', { ascending: false })
+        .order('name', { ascending: true })
+        .limit(10000);
 
       if (customersRes.error) throw customersRes.error;
-      if (agingRes.error) throw agingRes.error;
+      const customers = (customersRes.data || []) as Customer[];
 
+      // Fetch aging rows for exactly the customers we're about to render,
+      // keyed by id and chunked. We do NOT blindly select the whole
+      // customer_aging view: PostgREST silently caps result sets (~1000 rows),
+      // so with 2400+ customers a single fetch drops rows and their buckets
+      // render as zero even though the DB has the correct values. Querying by
+      // id-chunks guarantees every rendered customer gets its aging row.
       const agingById = new Map<number, CustomerAging>();
-      for (const row of (agingRes.data || []) as CustomerAging[]) {
-        agingById.set(row.id, row);
+      const ids = customers.map((c) => c.id);
+      const CHUNK = 200;
+      const chunks: number[][] = [];
+      for (let i = 0; i < ids.length; i += CHUNK) chunks.push(ids.slice(i, i + CHUNK));
+
+      const agingResults = await Promise.all(
+        chunks.map((slice) =>
+          supabase
+            .from('customer_aging')
+            .select('id, bucket_0_30, bucket_31_60, bucket_61_90, bucket_90_plus, total_unpaid')
+            .in('id', slice)
+        )
+      );
+
+      for (const res of agingResults) {
+        if (res.error) throw res.error;
+        for (const row of (res.data || []) as CustomerAging[]) {
+          agingById.set(row.id, row);
+        }
       }
 
-      return (customersRes.data || []).map((c: Customer) => {
+      return customers.map((c: Customer) => {
         const a = agingById.get(c.id);
         return {
           ...c,
