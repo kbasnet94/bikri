@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { useCustomersWithAging, useCustomer, useCreateCustomer, useCreateLedgerEntry, useCustomerLedger } from "@/hooks/use-customers";
 import { useCurrency } from "@/hooks/use-currency";
 import { useAuth } from "@/hooks/use-auth";
+import ExcelJS from "exceljs";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -368,6 +369,7 @@ function CustomerDetailsDialog({ customer: customerProp, open, onOpenChange }: a
   const [isAddingEntry, setIsAddingEntry] = useState(false);
   const [selectedFiscalYear, setSelectedFiscalYear] = useState<string>(String(getCurrentFiscalYear()));
   const { formatCurrency, formatCurrencyShort, symbol } = useCurrency();
+  const { user } = useAuth();
   const ledgerEndRef = useRef<HTMLDivElement>(null);
 
   // Build fiscal year list from actual ledger entry dates (only years with data + current)
@@ -459,60 +461,99 @@ function CustomerDetailsDialog({ customer: customerProp, open, onOpenChange }: a
     }
   };
 
-  const downloadLedgerCSV = (exportMode: 'fiscal' | 'all' = 'fiscal') => {
+  const downloadLedgerXLSX = async (exportMode: 'fiscal' | 'all' = 'fiscal') => {
     const entriesToExport = exportMode === 'all' ? (ledger || []) : filteredLedger;
-    
+
     if (entriesToExport.length === 0 && (exportMode === 'all' || openingBalance === null || openingBalance === 0)) {
       toast({ title: "No data to export", description: "This customer has no transactions yet.", variant: "destructive" });
       return;
     }
 
-    const csvRows: Array<Record<string, string>> = [];
+    // Accounting format (whole numbers, negatives in parentheses) and short date — matches the formatted ledger template.
+    const ACCT_FMT = '_(* #,##0_);_(* (#,##0);_(* "-"??_);_(@_)';
+    const DATE_FMT = 'mm-dd-yy';
+    // ExcelJS serializes Date objects as UTC; a Nepal-local-midnight date (UTC+5:45)
+    // would shift back a calendar day. Pin to UTC-midnight of the intended day.
+    const toExcelDate = (d: Date) => new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+    const fyLabel = (exportMode === 'fiscal' && !isAllTime) ? getFiscalYearLabel(Number(selectedFiscalYear)) : null;
 
-    // Add opening balance row for fiscal year exports
-    if (exportMode === 'fiscal' && openingBalance !== null) {
-      const obAmount = (Math.abs(openingBalance) / 100).toFixed(2);
-      csvRows.push({
-        Date: fyDates ? format(fyDates.start, 'yyyy-MM-dd') : '',
-        Description: `Opening Balance (FY ${getFiscalYearLabel(Number(selectedFiscalYear))})`,
-        Debit: openingBalance > 0 ? obAmount : '',
-        Credit: openingBalance < 0 ? obAmount : '',
-        Adjustments: '',
-      });
-    }
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Sheet1');
+    ws.columns = [{ width: 11.14 }, { width: 48.29 }, { width: 18.86 }, { width: 11.57 }, { width: 11.71 }];
 
-    // Format data for CSV with separate columns for Debit, Credit, and Adjustments
-    entriesToExport.forEach(entry => {
-      const amount = (entry.amount / 100).toFixed(2);
-      csvRows.push({
-        Date: format(new Date(entry.entry_date!), 'yyyy-MM-dd'),
-        Description: entry.description || '-',
-        Debit: (entry.type === 'debit' || entry.type === 'purchase') ? amount : '',
-        Credit: entry.type === 'credit' ? amount : '',
-        Adjustments: entry.type === 'adjustment' ? amount : '',
-      });
+    // Title block
+    ws.getCell('A1').value = user?.businessName || 'Ledger Report';
+    ws.getCell('A1').font = { bold: true, size: 14 };
+    ws.getCell('A3').value = 'LEDGER REPORT - SUMMARY';
+    ws.getCell('A3').font = { bold: true, size: 8.5 };
+    ws.getCell('A5').value = `${customer.name} Ledger - As of ${format(new Date(), 'MMM dd, yyyy')}`;
+    ws.getCell('A5').font = { bold: true, size: 8.5 };
+
+    // Column headers (row 7)
+    ['Date', 'Description', 'dr_amount', 'cr_amount', 'Balance'].forEach((h, i) => {
+      const cell = ws.getRow(7).getCell(i + 1);
+      cell.value = h;
+      cell.font = { bold: true, size: 11 };
     });
 
-    // Generate CSV using Papa Parse
-    const csv = Papa.unparse(csvRows);
-    
-    // Create blob and download
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
+    let r = 8;
+    let firstDataRow = 0;
+    const writeRow = (dateVal: Date | null, desc: string, dr: number | null, cr: number | null) => {
+      if (firstDataRow === 0) firstDataRow = r;
+      const row = ws.getRow(r);
+      if (dateVal) { row.getCell(1).value = dateVal; row.getCell(1).numFmt = DATE_FMT; }
+      row.getCell(2).value = desc;
+      if (dr !== null) row.getCell(3).value = dr;
+      if (cr !== null) row.getCell(4).value = cr;
+      row.getCell(3).numFmt = ACCT_FMT;
+      row.getCell(4).numFmt = ACCT_FMT;
+      const bal = row.getCell(5);
+      // Live running balance: opening row seeds it, every later row builds on the one above.
+      bal.value = { formula: r === firstDataRow ? `C${r}-D${r}` : `E${r - 1}+C${r}-D${r}` };
+      bal.numFmt = ACCT_FMT;
+      r++;
+    };
+
+    // Opening balance row (fiscal-year exports only)
+    if (exportMode === 'fiscal' && openingBalance !== null && fyDates) {
+      const ob = openingBalance / 100;
+      writeRow(toExcelDate(fyDates.start), `Opening Balance (FY ${fyLabel})`, openingBalance > 0 ? ob : null, openingBalance < 0 ? Math.abs(ob) : null);
+    }
+
+    // Ledger entries: credits/payments reduce balance (cr), everything else increases it (dr).
+    entriesToExport.forEach((entry) => {
+      const amt = entry.amount / 100;
+      const isCredit = entry.type === 'credit' || entry.type === 'payment';
+      writeRow(toExcelDate(toLocalDate(entry.entry_date!)), entry.description || '-', isCredit ? null : amt, isCredit ? amt : null);
+    });
+
+    // Closing balance — bold, references the last running-balance cell, one blank row below.
+    const lastDataRow = r - 1;
+    if (firstDataRow > 0 && lastDataRow >= firstDataRow) {
+      const closeRow = ws.getRow(r + 1);
+      closeRow.getCell(2).value = 'Closing Balance';
+      closeRow.getCell(2).font = { bold: true, size: 11 };
+      const cb = closeRow.getCell(5);
+      cb.value = { formula: `E${lastDataRow}` };
+      cb.numFmt = ACCT_FMT;
+      cb.font = { bold: true, size: 11 };
+    }
+
+    const buffer = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     const url = URL.createObjectURL(blob);
-    
-    const fySuffix = exportMode === 'fiscal' && !isAllTime
-      ? `_FY${getFiscalYearLabel(Number(selectedFiscalYear)).replace('/', '-')}`
-      : '_all-time';
+    const link = document.createElement('a');
+    const fySuffix = fyLabel ? ` ${fyLabel.replace('/', '-')}` : ' all-time';
+    const safeName = customer.name.replace(/[\\/:*?"<>|]/g, '').trim();
     link.setAttribute('href', url);
-    link.setAttribute('download', `${customer.name.replace(/[^a-z0-9]/gi, '_')}_ledger${fySuffix}.csv`);
+    link.setAttribute('download', `${safeName} Ledger${fySuffix} ${format(new Date(), 'yyyyMMdd')}.xlsx`);
     link.style.visibility = 'hidden';
-    
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    
-    toast({ title: "CSV downloaded successfully" });
+    URL.revokeObjectURL(url);
+
+    toast({ title: "Ledger downloaded successfully" });
   };
 
   return (
@@ -585,18 +626,18 @@ function CustomerDetailsDialog({ customer: customerProp, open, onOpenChange }: a
                   <Button 
                     size="sm" 
                     variant="outline" 
-                    onClick={() => downloadLedgerCSV('fiscal')}
+                    onClick={() => downloadLedgerXLSX('fiscal')}
                     disabled={filteredLedger.length === 0 && (openingBalance === null || openingBalance === 0)}
                     data-testid="button-download-ledger-fy"
                   >
                     <Download className="w-4 h-4 mr-2" />
-                    {isAllTime ? 'Download CSV' : `Download FY ${getFiscalYearLabel(Number(selectedFiscalYear))}`}
+                    {isAllTime ? 'Download Ledger (All Time)' : `Download Ledger FY ${getFiscalYearLabel(Number(selectedFiscalYear))}`}
                   </Button>
                   {!isAllTime && (
                     <Button 
                       size="sm" 
                       variant="ghost" 
-                      onClick={() => downloadLedgerCSV('all')}
+                      onClick={() => downloadLedgerXLSX('all')}
                       disabled={!ledger || ledger.length === 0}
                       data-testid="button-download-ledger-all"
                     >
