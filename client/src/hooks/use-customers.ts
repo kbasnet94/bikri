@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "./use-auth";
+import { ledgerBalanceDelta } from '@/lib/ledger-math';
 
 export interface Customer {
   id: number;
@@ -301,7 +302,7 @@ export function useCreateLedgerEntry() {
 
       // Update customer balance
       // Credit entries decrease balance, other entries increase balance
-      const balanceChange = entry.type === 'credit' ? -entry.amount : entry.amount;
+      const balanceChange = ledgerBalanceDelta(entry.type, entry.amount);
 
       const { error: balanceError } = await supabase.rpc('update_customer_balance', {
         p_customer_id: entry.customerId,
