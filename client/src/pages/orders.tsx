@@ -507,7 +507,7 @@ export default function Orders() {
             </div>
 
             {/* Bulk Action Bar - fixed at bottom of viewport */}
-            {selectedOrders.size > 0 && (
+            {selectedOrders.size > 0 && status.value !== 'cancelled' && (
               <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-full max-w-2xl px-4">
                 <div className="flex items-center justify-between gap-4 px-6 py-3 bg-primary/5 dark:bg-primary/10 border-2 border-primary/30 rounded-xl shadow-2xl backdrop-blur-sm">
                   <span className="text-sm font-medium whitespace-nowrap">

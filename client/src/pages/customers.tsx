@@ -44,6 +44,7 @@ import { useCustomerTypes } from "@/hooks/use-customer-types";
 import { Badge } from "@/components/ui/badge";
 import { api } from "@shared/routes";
 import Papa from "papaparse";
+import { ledgerBalanceDelta, isBalanceReducing } from '@/lib/ledger-math';
 
 export default function Customers() {
   const [search, setSearch] = useState("");
@@ -418,8 +419,7 @@ function CustomerDetailsDialog({ customer: customerProp, open, onOpenChange }: a
         const entryDate = toLocalDate(entry.entry_date!);
         const startDate = new Date(fyDates.start.getFullYear(), fyDates.start.getMonth(), fyDates.start.getDate());
         if (entryDate < startDate) {
-          if (entry.type === 'credit') return sum - entry.amount;
-          return sum + entry.amount;
+          return sum + ledgerBalanceDelta(entry.type, entry.amount);
         }
         return sum;
       }, 0)
@@ -523,7 +523,7 @@ function CustomerDetailsDialog({ customer: customerProp, open, onOpenChange }: a
     // Ledger entries: credits/payments reduce balance (cr), everything else increases it (dr).
     entriesToExport.forEach((entry) => {
       const amt = entry.amount / 100;
-      const isCredit = entry.type === 'credit' || entry.type === 'payment';
+      const isCredit = isBalanceReducing(entry.type);
       writeRow(toExcelDate(toLocalDate(entry.entry_date!)), entry.description || '-', isCredit ? null : amt, isCredit ? amt : null);
     });
 
@@ -748,9 +748,9 @@ function CustomerDetailsDialog({ customer: customerProp, open, onOpenChange }: a
                         <TableCell className="capitalize text-xs font-medium text-muted-foreground">{entry.type}</TableCell>
                         <TableCell className={cn(
                           "text-right font-mono font-medium",
-                          entry.type === 'credit' ? "text-green-600" : "text-foreground"
+                          isBalanceReducing(entry.type) ? "text-green-600" : "text-foreground"
                         )}>
-                          {entry.type === 'credit' ? "-" : "+"}{formatCurrency(entry.amount)}
+                          {isBalanceReducing(entry.type) ? "-" : "+"}{formatCurrency(entry.amount)}
                         </TableCell>
                       </TableRow>
                     ))}

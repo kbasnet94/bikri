@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tansta
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "./use-auth";
 import { getCurrentFiscalYear, getFiscalYearDates } from "@/lib/fiscal-year";
+import { cancellationEffects, paymentStatusChangeEffects } from '@/lib/ledger-math';
 import type { Customer } from "./use-customers";
 import type { Product } from "./use-products";
 
@@ -426,6 +427,13 @@ export function useUpdateOrderStatus() {
 
       if (orderFetchError) throw orderFetchError;
 
+      // A cancelled order's stock/ledger/balance side effects were already
+      // reversed; re-activating would need them re-applied. We don't support
+      // that — recreate the order instead (see order #2848 -> #2850 pattern).
+      if (order.status === 'cancelled' && status !== 'cancelled') {
+        throw new Error('Cancelled orders cannot be reactivated. Create a new order instead.');
+      }
+
       // Update order status
       const { data, error } = await supabase
         .from('orders')
@@ -502,9 +510,13 @@ export function useUpdateOrderStatus() {
           }
         }
 
-        // Create reversal ledger entry (credit back) instead of deleting
-        if (user?.businessId) {
-          await supabase
+        const effects = cancellationEffects(order.payment_status, order.total_amount);
+
+        // Reversal ledger entry only for Credit orders. COD/Bank orders already
+        // hold purchase+payment entries that net to zero.
+        if (effects.createReversalEntry) {
+          if (!user?.businessId) throw new Error('No business selected');
+          const { error: revErr } = await supabase
             .from('ledger_entries')
             .insert({
               business_id: user.businessId,
@@ -515,20 +527,24 @@ export function useUpdateOrderStatus() {
               description: `Order #${id} cancelled - reversed`,
               entry_date: new Date().toISOString(),
             });
+          if (revErr) throw revErr;
         }
 
-        // Reverse customer balance (for all payment types, since ledger entry is always created)
-        const { data: customer } = await supabase
-          .from('customers')
-          .select('current_balance')
-          .eq('id', order.customer_id)
-          .single();
-
-        if (customer) {
-          await supabase
+        if (effects.balanceDelta !== 0) {
+          if (!user?.businessId) throw new Error('No business selected');
+          const { data: customer } = await supabase
             .from('customers')
-            .update({ current_balance: customer.current_balance - order.total_amount })
-            .eq('id', order.customer_id);
+            .select('current_balance')
+            .eq('id', order.customer_id)
+            .single();
+
+          if (customer) {
+            const { error: balErr } = await supabase
+              .from('customers')
+              .update({ current_balance: customer.current_balance + effects.balanceDelta })
+              .eq('id', order.customer_id);
+            if (balErr) throw balErr;
+          }
         }
       }
 
@@ -541,6 +557,7 @@ export function useUpdateOrderStatus() {
       queryClient.invalidateQueries({ queryKey: ['inventory'] });
       queryClient.invalidateQueries({ queryKey: ['vat'] });
       queryClient.invalidateQueries({ queryKey: ['product-variants'] });
+      queryClient.invalidateQueries({ queryKey: ['ledger'] });
     },
   });
 }
@@ -718,9 +735,22 @@ export function useDeleteOrder() {
 
 export function useUpdatePaymentStatus() {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
 
   return useMutation({
     mutationFn: async ({ id, paymentStatus }: { id: number; paymentStatus: string }) => {
+      const { data: order, error: fetchErr } = await supabase
+        .from('orders')
+        .select('customer_id, total_amount, payment_status, status')
+        .eq('id', id)
+        .single();
+
+      if (fetchErr) throw fetchErr;
+
+      if (order.status === 'cancelled') {
+        throw new Error('Cannot change payment status of a cancelled order.');
+      }
+
       const { data, error } = await supabase
         .from('orders')
         .update({ payment_status: paymentStatus })
@@ -729,10 +759,62 @@ export function useUpdatePaymentStatus() {
         .single();
 
       if (error) throw error;
+
+      const effects = paymentStatusChangeEffects(
+        order.payment_status,
+        paymentStatus,
+        order.total_amount,
+      );
+
+      if (effects.ledgerAction === 'insert-payment') {
+        if (!user?.businessId) throw new Error('No business selected');
+        // Order was Credit, is now paid: record the payment.
+        const { error: payErr } = await supabase
+          .from('ledger_entries')
+          .insert({
+            business_id: user.businessId,
+            customer_id: order.customer_id,
+            order_id: id,
+            type: 'payment',
+            amount: order.total_amount,
+            description: `Payment received - Order #${id} (${paymentStatus})`,
+            entry_date: new Date().toISOString(),
+          });
+        if (payErr) throw payErr;
+      } else if (effects.ledgerAction === 'delete-auto-payment') {
+        // Order was COD/Bank, is now Credit: remove the auto payment entry
+        // created at order time. Manual payments have order_id NULL and are
+        // never touched by this. Older orders may lack the entry — that's fine.
+        const { error: delErr } = await supabase
+          .from('ledger_entries')
+          .delete()
+          .eq('order_id', id)
+          .eq('type', 'payment');
+        if (delErr) throw delErr;
+      }
+
+      if (effects.balanceDelta !== 0) {
+        const { data: customer } = await supabase
+          .from('customers')
+          .select('current_balance')
+          .eq('id', order.customer_id)
+          .single();
+
+        if (customer) {
+          const { error: balErr } = await supabase
+            .from('customers')
+            .update({ current_balance: customer.current_balance + effects.balanceDelta })
+            .eq('id', order.customer_id);
+          if (balErr) throw balErr;
+        }
+      }
+
       return data as Order;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['orders'] });
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      queryClient.invalidateQueries({ queryKey: ['ledger', data.customer_id] });
     },
   });
 }
