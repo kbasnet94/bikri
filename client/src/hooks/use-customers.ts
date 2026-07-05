@@ -301,7 +301,7 @@ export function useCreateLedgerEntry() {
       if (ledgerError) throw ledgerError;
 
       // Update customer balance
-      // Credit entries decrease balance, other entries increase balance
+      // Sign convention lives in ledgerBalanceDelta (credit/payment decrease, others increase)
       const balanceChange = ledgerBalanceDelta(entry.type, entry.amount);
 
       const { error: balanceError } = await supabase.rpc('update_customer_balance', {

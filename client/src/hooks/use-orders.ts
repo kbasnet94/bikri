@@ -514,8 +514,9 @@ export function useUpdateOrderStatus() {
 
         // Reversal ledger entry only for Credit orders. COD/Bank orders already
         // hold purchase+payment entries that net to zero.
-        if (effects.createReversalEntry && user?.businessId) {
-          await supabase
+        if (effects.createReversalEntry) {
+          if (!user?.businessId) throw new Error('No business selected');
+          const { error: revErr } = await supabase
             .from('ledger_entries')
             .insert({
               business_id: user.businessId,
@@ -526,9 +527,11 @@ export function useUpdateOrderStatus() {
               description: `Order #${id} cancelled - reversed`,
               entry_date: new Date().toISOString(),
             });
+          if (revErr) throw revErr;
         }
 
         if (effects.balanceDelta !== 0) {
+          if (!user?.businessId) throw new Error('No business selected');
           const { data: customer } = await supabase
             .from('customers')
             .select('current_balance')
@@ -536,10 +539,11 @@ export function useUpdateOrderStatus() {
             .single();
 
           if (customer) {
-            await supabase
+            const { error: balErr } = await supabase
               .from('customers')
               .update({ current_balance: customer.current_balance + effects.balanceDelta })
               .eq('id', order.customer_id);
+            if (balErr) throw balErr;
           }
         }
       }
@@ -553,6 +557,7 @@ export function useUpdateOrderStatus() {
       queryClient.invalidateQueries({ queryKey: ['inventory'] });
       queryClient.invalidateQueries({ queryKey: ['vat'] });
       queryClient.invalidateQueries({ queryKey: ['product-variants'] });
+      queryClient.invalidateQueries({ queryKey: ['ledger'] });
     },
   });
 }
@@ -761,7 +766,8 @@ export function useUpdatePaymentStatus() {
         order.total_amount,
       );
 
-      if (effects.ledgerAction === 'insert-payment' && user?.businessId) {
+      if (effects.ledgerAction === 'insert-payment') {
+        if (!user?.businessId) throw new Error('No business selected');
         // Order was Credit, is now paid: record the payment.
         const { error: payErr } = await supabase
           .from('ledger_entries')

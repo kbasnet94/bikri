@@ -38,8 +38,9 @@ async function fetchAll<T>(table: string, select: string): Promise<T[]> {
       .order('id', { ascending: true })
       .range(from, from + page - 1);
     if (error) throw new Error(`${table}: ${error.message}`);
+    if (!data) return rows;
     rows.push(...(data as T[]));
-    if (!data || data.length < page) return rows;
+    if (data.length < page) return rows;
   }
 }
 
@@ -81,7 +82,7 @@ async function main() {
   const csv = ['business,customer_id,customer_name,stored_balance,computed_balance,delta'];
   for (const { customer: c, computed } of changes) {
     const delta = computed - c.current_balance;
-    csv.push(`"${bizName.get(c.business_id)}",${c.id},"${c.name.replace(/"/g, '""')}",${c.current_balance},${computed},${delta}`);
+    csv.push(`"${(bizName.get(c.business_id) ?? '').replace(/"/g, '""')}",${c.id},"${c.name.replace(/"/g, '""')}",${c.current_balance},${computed},${delta}`);
     console.log(
       `  [${bizName.get(c.business_id)}] #${c.id} ${c.name}: ` +
       `${(c.current_balance / 100).toFixed(2)} -> ${(computed / 100).toFixed(2)} ` +
@@ -117,16 +118,30 @@ async function main() {
   const aging = await fetchAll<{ id: number; business_id: string; total_unpaid: number }>(
     'customer_aging', 'id,business_id,total_unpaid',
   );
+  const agingByCustomer = new Map(aging.map((a) => [a.id, a.total_unpaid]));
   for (const b of businesses) {
-    const dash = freshCustomers
-      .filter((c) => c.business_id === b.id && c.current_balance > 0)
+    const bizCustomers = freshCustomers.filter((c) => c.business_id === b.id);
+    const dash = bizCustomers
+      .filter((c) => c.current_balance > 0)
       .reduce((s, c) => s + c.current_balance, 0);
     const view = aging
       .filter((a) => a.business_id === b.id)
       .reduce((s, a) => s + a.total_unpaid, 0);
     const ok = dash === view ? 'OK' : 'MISMATCH';
     console.log(`${ok}  ${b.name}: dashboard=${(dash / 100).toFixed(2)} view=${(view / 100).toFixed(2)}`);
-    if (dash !== view) process.exitCode = 1;
+    if (dash !== view) {
+      process.exitCode = 1;
+      for (const c of bizCustomers) {
+        const storedClamped = Math.max(c.current_balance, 0);
+        const agingUnpaid = agingByCustomer.get(c.id) ?? 0;
+        if (storedClamped !== agingUnpaid) {
+          const delta = agingUnpaid - storedClamped;
+          console.log(
+            `    CUST #${c.id} ${c.name}: stored=${(storedClamped / 100).toFixed(2)} aging=${(agingUnpaid / 100).toFixed(2)} delta=${delta > 0 ? '+' : ''}${(delta / 100).toFixed(2)}`,
+          );
+        }
+      }
+    }
   }
 }
 
