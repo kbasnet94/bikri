@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tansta
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "./use-auth";
 import { getCurrentFiscalYear, getFiscalYearDates } from "@/lib/fiscal-year";
-import { cancellationEffects } from '@/lib/ledger-math';
+import { cancellationEffects, paymentStatusChangeEffects } from '@/lib/ledger-math';
 import type { Customer } from "./use-customers";
 import type { Product } from "./use-products";
 
@@ -730,9 +730,22 @@ export function useDeleteOrder() {
 
 export function useUpdatePaymentStatus() {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
 
   return useMutation({
     mutationFn: async ({ id, paymentStatus }: { id: number; paymentStatus: string }) => {
+      const { data: order, error: fetchErr } = await supabase
+        .from('orders')
+        .select('customer_id, total_amount, payment_status, status')
+        .eq('id', id)
+        .single();
+
+      if (fetchErr) throw fetchErr;
+
+      if (order.status === 'cancelled') {
+        throw new Error('Cannot change payment status of a cancelled order.');
+      }
+
       const { data, error } = await supabase
         .from('orders')
         .update({ payment_status: paymentStatus })
@@ -741,10 +754,58 @@ export function useUpdatePaymentStatus() {
         .single();
 
       if (error) throw error;
+
+      const effects = paymentStatusChangeEffects(
+        order.payment_status,
+        paymentStatus,
+        order.total_amount,
+      );
+
+      if (effects.ledgerAction === 'insert-payment' && user?.businessId) {
+        // Order was Credit, is now paid: record the payment.
+        await supabase
+          .from('ledger_entries')
+          .insert({
+            business_id: user.businessId,
+            customer_id: order.customer_id,
+            order_id: id,
+            type: 'payment',
+            amount: order.total_amount,
+            description: `Payment received - Order #${id} (${paymentStatus})`,
+            entry_date: new Date().toISOString(),
+          });
+      } else if (effects.ledgerAction === 'delete-auto-payment') {
+        // Order was COD/Bank, is now Credit: remove the auto payment entry
+        // created at order time. Manual payments have order_id NULL and are
+        // never touched by this. Older orders may lack the entry — that's fine.
+        await supabase
+          .from('ledger_entries')
+          .delete()
+          .eq('order_id', id)
+          .eq('type', 'payment');
+      }
+
+      if (effects.balanceDelta !== 0) {
+        const { data: customer } = await supabase
+          .from('customers')
+          .select('current_balance')
+          .eq('id', order.customer_id)
+          .single();
+
+        if (customer) {
+          await supabase
+            .from('customers')
+            .update({ current_balance: customer.current_balance + effects.balanceDelta })
+            .eq('id', order.customer_id);
+        }
+      }
+
       return data as Order;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['orders'] });
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      queryClient.invalidateQueries({ queryKey: ['ledger', data.customer_id] });
     },
   });
 }
