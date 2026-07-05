@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tansta
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "./use-auth";
 import { getCurrentFiscalYear, getFiscalYearDates } from "@/lib/fiscal-year";
+import { cancellationEffects } from '@/lib/ledger-math';
 import type { Customer } from "./use-customers";
 import type { Product } from "./use-products";
 
@@ -426,6 +427,13 @@ export function useUpdateOrderStatus() {
 
       if (orderFetchError) throw orderFetchError;
 
+      // A cancelled order's stock/ledger/balance side effects were already
+      // reversed; re-activating would need them re-applied. We don't support
+      // that — recreate the order instead (see order #2848 -> #2850 pattern).
+      if (order.status === 'cancelled' && status !== 'cancelled') {
+        throw new Error('Cancelled orders cannot be reactivated. Create a new order instead.');
+      }
+
       // Update order status
       const { data, error } = await supabase
         .from('orders')
@@ -502,8 +510,11 @@ export function useUpdateOrderStatus() {
           }
         }
 
-        // Create reversal ledger entry (credit back) instead of deleting
-        if (user?.businessId) {
+        const effects = cancellationEffects(order.payment_status, order.total_amount);
+
+        // Reversal ledger entry only for Credit orders. COD/Bank orders already
+        // hold purchase+payment entries that net to zero.
+        if (effects.createReversalEntry && user?.businessId) {
           await supabase
             .from('ledger_entries')
             .insert({
@@ -517,18 +528,19 @@ export function useUpdateOrderStatus() {
             });
         }
 
-        // Reverse customer balance (for all payment types, since ledger entry is always created)
-        const { data: customer } = await supabase
-          .from('customers')
-          .select('current_balance')
-          .eq('id', order.customer_id)
-          .single();
-
-        if (customer) {
-          await supabase
+        if (effects.balanceDelta !== 0) {
+          const { data: customer } = await supabase
             .from('customers')
-            .update({ current_balance: customer.current_balance - order.total_amount })
-            .eq('id', order.customer_id);
+            .select('current_balance')
+            .eq('id', order.customer_id)
+            .single();
+
+          if (customer) {
+            await supabase
+              .from('customers')
+              .update({ current_balance: customer.current_balance + effects.balanceDelta })
+              .eq('id', order.customer_id);
+          }
         }
       }
 
