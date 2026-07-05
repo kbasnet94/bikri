@@ -763,7 +763,7 @@ export function useUpdatePaymentStatus() {
 
       if (effects.ledgerAction === 'insert-payment' && user?.businessId) {
         // Order was Credit, is now paid: record the payment.
-        await supabase
+        const { error: payErr } = await supabase
           .from('ledger_entries')
           .insert({
             business_id: user.businessId,
@@ -774,15 +774,17 @@ export function useUpdatePaymentStatus() {
             description: `Payment received - Order #${id} (${paymentStatus})`,
             entry_date: new Date().toISOString(),
           });
+        if (payErr) throw payErr;
       } else if (effects.ledgerAction === 'delete-auto-payment') {
         // Order was COD/Bank, is now Credit: remove the auto payment entry
         // created at order time. Manual payments have order_id NULL and are
         // never touched by this. Older orders may lack the entry — that's fine.
-        await supabase
+        const { error: delErr } = await supabase
           .from('ledger_entries')
           .delete()
           .eq('order_id', id)
           .eq('type', 'payment');
+        if (delErr) throw delErr;
       }
 
       if (effects.balanceDelta !== 0) {
@@ -793,10 +795,11 @@ export function useUpdatePaymentStatus() {
           .single();
 
         if (customer) {
-          await supabase
+          const { error: balErr } = await supabase
             .from('customers')
             .update({ current_balance: customer.current_balance + effects.balanceDelta })
             .eq('id', order.customer_id);
+          if (balErr) throw balErr;
         }
       }
 
