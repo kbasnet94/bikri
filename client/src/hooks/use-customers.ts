@@ -270,6 +270,44 @@ export function useCreateCustomer() {
   });
 }
 
+export function useUpdateCustomerType() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ customerId, customerTypeId }: { customerId: number; customerTypeId: number }) => {
+      const { error } = await supabase
+        .from('customers')
+        .update({ customer_type_id: customerTypeId })
+        .eq('id', customerId);
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      queryClient.invalidateQueries({ queryKey: ['customers-with-aging'] });
+    },
+  });
+}
+
+export function useBulkUpdateCustomerType() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ customerIds, customerTypeId }: { customerIds: number[]; customerTypeId: number }) => {
+      const { error } = await supabase
+        .from('customers')
+        .update({ customer_type_id: customerTypeId })
+        .in('id', customerIds);
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      queryClient.invalidateQueries({ queryKey: ['customers-with-aging'] });
+    },
+  });
+}
+
 export function useCreateLedgerEntry() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
