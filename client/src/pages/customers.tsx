@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { useCustomersWithAging, useCustomer, useCreateCustomer, useCreateLedgerEntry, useCustomerLedger, useUpdateCustomerType } from "@/hooks/use-customers";
+import { useCustomersWithAging, useCustomer, useCreateCustomer, useCreateLedgerEntry, useCustomerLedger, useUpdateCustomerType, useBulkUpdateCustomerType } from "@/hooks/use-customers";
 import { useCurrency } from "@/hooks/use-currency";
 import { useAuth } from "@/hooks/use-auth";
 import ExcelJS from "exceljs";
@@ -38,6 +38,7 @@ import { z } from "zod";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Card } from "@/components/ui/card";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCustomerTypes } from "@/hooks/use-customer-types";
@@ -69,6 +70,53 @@ export default function Customers() {
     }
   };
 
+  const bulkUpdateCustomerType = useBulkUpdateCustomerType();
+  const [typeFilter, setTypeFilter] = useState<string>("all"); // 'all' | 'none' | String(typeId)
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [bulkTypeId, setBulkTypeId] = useState<string>("");
+
+  const filteredCustomers = (customers || []).filter(c => {
+    if (typeFilter === 'all') return true;
+    if (typeFilter === 'none') return !c.customer_type_id;
+    return c.customer_type_id === parseInt(typeFilter);
+  });
+
+  const changeTypeFilter = (v: string) => {
+    setTypeFilter(v);
+    setSelectMode(false);
+    setSelectedIds(new Set());
+  };
+
+  const toggleSelected = (id: number) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const allVisibleSelected = filteredCustomers.length > 0 && filteredCustomers.every(c => selectedIds.has(c.id));
+
+  const toggleSelectAll = () => {
+    setSelectedIds(allVisibleSelected ? new Set() : new Set(filteredCustomers.map(c => c.id)));
+  };
+
+  const handleBulkAssign = async () => {
+    if (!bulkTypeId || selectedIds.size === 0) return;
+    try {
+      await bulkUpdateCustomerType.mutateAsync({
+        customerIds: Array.from(selectedIds),
+        customerTypeId: parseInt(bulkTypeId),
+      });
+      toast({ title: `${selectedIds.size} customer(s) updated` });
+      setSelectedIds(new Set());
+      setBulkTypeId("");
+    } catch (error: any) {
+      toast({ title: "Bulk update failed", description: error.message, variant: "destructive" });
+    }
+  };
+
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -92,20 +140,75 @@ export default function Customers() {
         </div>
       </div>
 
-      <div className="relative w-full max-w-sm">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-        <Input 
-          placeholder="Search by name, email, or phone..." 
-          className="pl-9 bg-card border-border/60"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="relative w-full max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input
+            placeholder="Search by name, email, or phone..."
+            className="pl-9 bg-card border-border/60"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+        {(customerTypes || []).length > 0 && (
+          <Select value={typeFilter} onValueChange={changeTypeFilter}>
+            <SelectTrigger className="w-44 bg-card" data-testid="select-type-filter">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All types</SelectItem>
+              <SelectItem value="none">Uncategorized</SelectItem>
+              {customerTypes!.map(t => (
+                <SelectItem key={t.id} value={String(t.id)}>{t.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+        {typeFilter !== 'all' && (
+          <Button
+            variant={selectMode ? "secondary" : "outline"}
+            size="sm"
+            onClick={() => { setSelectMode(!selectMode); setSelectedIds(new Set()); }}
+            data-testid="button-select-mode"
+          >
+            {selectMode ? "Done" : "Select"}
+          </Button>
+        )}
       </div>
+
+      {selectMode && selectedIds.size > 0 && (
+        <div className="flex items-center gap-3 bg-primary/5 border border-primary/20 rounded-xl px-4 py-3" data-testid="bulk-action-bar">
+          <span className="text-sm font-medium">{selectedIds.size} selected</span>
+          <Select value={bulkTypeId} onValueChange={setBulkTypeId}>
+            <SelectTrigger className="w-44 h-9 bg-card" data-testid="select-bulk-type">
+              <SelectValue placeholder="Assign type..." />
+            </SelectTrigger>
+            <SelectContent>
+              {(customerTypes || []).map(t => (
+                <SelectItem key={t.id} value={String(t.id)}>{t.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            size="sm"
+            onClick={handleBulkAssign}
+            disabled={!bulkTypeId || bulkUpdateCustomerType.isPending}
+            data-testid="button-bulk-assign"
+          >
+            {bulkUpdateCustomerType.isPending ? "Applying..." : `Apply to ${selectedIds.size} customer(s)`}
+          </Button>
+        </div>
+      )}
 
       <div className="bg-card rounded-xl shadow-sm border border-border/50 overflow-hidden">
         <Table>
           <TableHeader>
             <TableRow className="bg-muted/30">
+              {selectMode && (
+                <TableHead className="w-10">
+                  <Checkbox checked={allVisibleSelected} onCheckedChange={toggleSelectAll} data-testid="checkbox-select-all" />
+                </TableHead>
+              )}
               <TableHead>Name</TableHead>
               <TableHead>Contact</TableHead>
               <TableHead>Type</TableHead>
@@ -120,15 +223,24 @@ export default function Customers() {
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={9} className="h-24 text-center">Loading...</TableCell>
+                <TableCell colSpan={selectMode ? 10 : 9} className="h-24 text-center">Loading...</TableCell>
               </TableRow>
-            ) : customers?.length === 0 ? (
+            ) : filteredCustomers.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">No customers found.</TableCell>
+                <TableCell colSpan={selectMode ? 10 : 9} className="h-24 text-center text-muted-foreground">No customers found.</TableCell>
               </TableRow>
             ) : (
-              customers?.map((customer) => (
+              filteredCustomers.map((customer) => (
                 <TableRow key={customer.id} className="group hover:bg-muted/5">
+                  {selectMode && (
+                    <TableCell>
+                      <Checkbox
+                        checked={selectedIds.has(customer.id)}
+                        onCheckedChange={() => toggleSelected(customer.id)}
+                        data-testid={`checkbox-customer-${customer.id}`}
+                      />
+                    </TableCell>
+                  )}
                   <TableCell className="font-medium">
                     <div className="flex flex-col">
                       <div className="flex items-center gap-2">
