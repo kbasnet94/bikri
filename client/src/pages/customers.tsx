@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { useCustomersWithAging, useCustomer, useCreateCustomer, useCreateLedgerEntry, useCustomerLedger } from "@/hooks/use-customers";
+import { useCustomersWithAging, useCustomer, useCreateCustomer, useCreateLedgerEntry, useCustomerLedger, useUpdateCustomerType } from "@/hooks/use-customers";
 import { useCurrency } from "@/hooks/use-currency";
 import { useAuth } from "@/hooks/use-auth";
 import ExcelJS from "exceljs";
@@ -56,6 +56,19 @@ export default function Customers() {
 
   const { data: customers, isLoading } = useCustomersWithAging(search);
 
+  const { data: customerTypes } = useCustomerTypes();
+  const updateCustomerType = useUpdateCustomerType();
+  const { toast } = useToast();
+
+  const handleQuickSetType = async (customerId: number, typeId: number) => {
+    try {
+      await updateCustomerType.mutateAsync({ customerId, customerTypeId: typeId });
+      toast({ title: "Customer type updated" });
+    } catch (error: any) {
+      toast({ title: "Failed to update type", description: error.message, variant: "destructive" });
+    }
+  };
+
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -95,6 +108,7 @@ export default function Customers() {
             <TableRow className="bg-muted/30">
               <TableHead>Name</TableHead>
               <TableHead>Contact</TableHead>
+              <TableHead>Type</TableHead>
               <TableHead className="text-right">Balance</TableHead>
               <TableHead className="text-right whitespace-nowrap">0–30 d</TableHead>
               <TableHead className="text-right whitespace-nowrap">31–60 d</TableHead>
@@ -106,11 +120,11 @@ export default function Customers() {
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={8} className="h-24 text-center">Loading...</TableCell>
+                <TableCell colSpan={9} className="h-24 text-center">Loading...</TableCell>
               </TableRow>
             ) : customers?.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">No customers found.</TableCell>
+                <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">No customers found.</TableCell>
               </TableRow>
             ) : (
               customers?.map((customer) => (
@@ -119,11 +133,6 @@ export default function Customers() {
                     <div className="flex flex-col">
                       <div className="flex items-center gap-2">
                         <span>{customer.name}</span>
-                        {customer.customer_type && (
-                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-normal">
-                            {customer.customer_type.name}
-                          </Badge>
-                        )}
                       </div>
                       <span className="text-xs text-muted-foreground">{customer.address}</span>
                     </div>
@@ -136,6 +145,33 @@ export default function Customers() {
                         <span className="text-xs text-muted-foreground" data-testid={`text-pan-vat-${customer.id}`}>PAN/VAT: {customer.pan_vat_number}</span>
                       )}
                     </div>
+                  </TableCell>
+                  <TableCell>
+                    {(customerTypes || []).length > 0 ? (
+                      <Select
+                        value={customer.customer_type_id ? String(customer.customer_type_id) : ""}
+                        onValueChange={(v) => handleQuickSetType(customer.id, parseInt(v))}
+                      >
+                        <SelectTrigger
+                          className={cn(
+                            "h-7 w-36 text-xs",
+                            !customer.customer_type_id && "text-muted-foreground italic"
+                          )}
+                          data-testid={`select-type-${customer.id}`}
+                        >
+                          <SelectValue placeholder="Uncategorized" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {customerTypes!.map(t => (
+                            <SelectItem key={t.id} value={String(t.id)}>{t.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <span className="text-xs text-muted-foreground italic">
+                        {customer.customer_type?.name || "Uncategorized"}
+                      </span>
+                    )}
                   </TableCell>
                   <TableCell className="text-right">
                     <span className={cn(
@@ -380,6 +416,17 @@ function CustomerDetailsDialog({ customer: customerProp, open, onOpenChange }: a
   const { data: ledger } = useCustomerLedger(customer.id);
   const createLedgerEntry = useCreateLedgerEntry();
   const { toast } = useToast();
+  const { data: customerTypes } = useCustomerTypes();
+  const updateCustomerType = useUpdateCustomerType();
+
+  const handleSetType = async (typeId: number) => {
+    try {
+      await updateCustomerType.mutateAsync({ customerId: customer.id, customerTypeId: typeId });
+      toast({ title: "Customer type updated" });
+    } catch (error: any) {
+      toast({ title: "Failed to update type", description: error.message, variant: "destructive" });
+    }
+  };
   const [isAddingEntry, setIsAddingEntry] = useState(false);
   const [selectedFiscalYear, setSelectedFiscalYear] = useState<string>(String(getCurrentFiscalYear()));
   const { formatCurrency, formatCurrencyShort, symbol } = useCurrency();
@@ -577,9 +624,29 @@ function CustomerDetailsDialog({ customer: customerProp, open, onOpenChange }: a
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-2xl font-display font-bold">{customer.name}</h2>
-                {customer.customer_type && (
+                {(customerTypes || []).length > 0 ? (
+                  <Select
+                    value={customer.customer_type_id ? String(customer.customer_type_id) : ""}
+                    onValueChange={(v) => handleSetType(parseInt(v))}
+                  >
+                    <SelectTrigger
+                      className={cn(
+                        "h-7 w-36 text-xs",
+                        !customer.customer_type_id && "text-muted-foreground italic"
+                      )}
+                      data-testid="select-detail-customer-type"
+                    >
+                      <SelectValue placeholder="Uncategorized" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {customerTypes!.map(t => (
+                        <SelectItem key={t.id} value={String(t.id)}>{t.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : customer.customer_type ? (
                   <Badge variant="secondary" className="text-xs">{customer.customer_type.name}</Badge>
-                )}
+                ) : null}
               </div>
               <p className="text-muted-foreground flex items-center gap-2 mt-1">
                 <Wallet className="w-4 h-4" />
