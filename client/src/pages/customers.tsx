@@ -56,7 +56,9 @@ export default function Customers() {
   const [selectedCustomer, setSelectedCustomer] = useState<any | null>(null);
   const { formatCurrency, formatCurrencyShort, formatAmountWhole } = useCurrency();
 
-  const { data: customers, isLoading } = useCustomersWithAging(search);
+  const [typeFilter, setTypeFilter] = useState<string>("all"); // 'all' | 'none' | String(typeId)
+
+  const { data: customers, isLoading } = useCustomersWithAging(search, typeFilter !== 'all');
 
   const { data: customerTypes } = useCustomerTypes();
   const updateCustomerType = useUpdateCustomerType();
@@ -72,7 +74,6 @@ export default function Customers() {
   };
 
   const bulkUpdateCustomerType = useBulkUpdateCustomerType();
-  const [typeFilter, setTypeFilter] = useState<string>("all"); // 'all' | 'none' | String(typeId)
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [bulkTypeId, setBulkTypeId] = useState<string>("");

@@ -77,11 +77,11 @@ export function useCustomers(search?: string) {
   });
 }
 
-export function useCustomersWithAging(search?: string) {
+export function useCustomersWithAging(search?: string, includeAll?: boolean) {
   const { user } = useAuth();
 
   return useQuery({
-    queryKey: ['customers-with-aging', user?.businessId, search],
+    queryKey: ['customers-with-aging', user?.businessId, search, includeAll ?? false],
     queryFn: async () => {
       // Fetch customers and aging buckets in parallel. We join client-side
       // by id rather than via a Supabase nested-select because customer_aging
@@ -96,12 +96,14 @@ export function useCustomersWithAging(search?: string) {
         customersQuery = customersQuery.or(
           `name.ilike.%${search}%,email.ilike.%${search}%,phone.ilike.%${search}%`
         );
-      } else {
+      } else if (!includeAll) {
         // Default A/R view: only credit clients — those who currently owe.
         // Zero-balance cash/COD clients have nothing to age and would only
         // bloat the list past the row cap.
         customersQuery = customersQuery.gt('current_balance', 0);
       }
+      // includeAll (type-filter active): fetch every customer so the
+      // categorize workflow can reach zero-balance uncategorized clients.
 
       const customersRes = await customersQuery
         .order('current_balance', { ascending: false })
