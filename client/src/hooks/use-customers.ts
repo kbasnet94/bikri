@@ -86,32 +86,45 @@ export function useCustomersWithAging(search?: string, includeAll?: boolean) {
       // Fetch customers and aging buckets in parallel. We join client-side
       // by id rather than via a Supabase nested-select because customer_aging
       // is a view (no FK), and joining server-side would require extra config.
-      let customersQuery = supabase
-        .from('customers')
-        .select('*, customer_type:customer_types(id, name)');
+      // PostgREST silently caps result sets (~1000 rows); page through so
+      // the categorize view (includeAll) sees every customer, not the
+      // first 1000 by balance.
+      const buildQuery = () => {
+        let q = supabase
+          .from('customers')
+          .select('*, customer_type:customer_types(id, name)');
+        if (search) {
+          // While searching, look across ALL customers (incl. zero-balance
+          // cash/COD clients) so they remain findable.
+          q = q.or(
+            `name.ilike.%${search}%,email.ilike.%${search}%,phone.ilike.%${search}%`
+          );
+        } else if (!includeAll) {
+          // Default A/R view: only credit clients — those who currently owe.
+          // Zero-balance cash/COD clients have nothing to age and would only
+          // bloat the list past the row cap.
+          q = q.gt('current_balance', 0);
+        }
+        // includeAll (type-filter active): fetch every customer so the
+        // categorize workflow can reach zero-balance uncategorized clients.
+        return q
+          .order('current_balance', { ascending: false })
+          .order('name', { ascending: true })
+          .order('id', { ascending: true });
+      };
 
-      if (search) {
-        // While searching, look across ALL customers (incl. zero-balance
-        // cash/COD clients) so they remain findable.
-        customersQuery = customersQuery.or(
-          `name.ilike.%${search}%,email.ilike.%${search}%,phone.ilike.%${search}%`
-        );
-      } else if (!includeAll) {
-        // Default A/R view: only credit clients — those who currently owe.
-        // Zero-balance cash/COD clients have nothing to age and would only
-        // bloat the list past the row cap.
-        customersQuery = customersQuery.gt('current_balance', 0);
+      const customers: Customer[] = [];
+      let from = 0;
+      const batchSize = 1000;
+
+      while (true) {
+        const { data, error } = await buildQuery().range(from, from + batchSize - 1);
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+        customers.push(...(data as Customer[]));
+        if (data.length < batchSize) break;
+        from += batchSize;
       }
-      // includeAll (type-filter active): fetch every customer so the
-      // categorize workflow can reach zero-balance uncategorized clients.
-
-      const customersRes = await customersQuery
-        .order('current_balance', { ascending: false })
-        .order('name', { ascending: true })
-        .limit(10000);
-
-      if (customersRes.error) throw customersRes.error;
-      const customers = (customersRes.data || []) as Customer[];
 
       // Fetch aging rows for exactly the customers we're about to render,
       // keyed by id and chunked. We do NOT blindly select the whole
@@ -383,16 +396,28 @@ export function useCustomerTypeMap() {
   return useQuery({
     queryKey: ['customers', 'type-map', user?.businessId],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('customers')
-        .select('id, customer_type_id')
-        .limit(50000);
-
-      if (error) throw error;
-
+      // PostgREST silently caps result sets (~1000 rows), so page through
+      // by id to guarantee the map covers every customer — a missing entry
+      // makes that customer's orders render as "Uncategorized" on the
+      // dashboard even when a type is assigned.
       const map = new Map<number, number | null>();
-      for (const row of data || []) {
-        map.set(row.id, row.customer_type_id);
+      let from = 0;
+      const batchSize = 1000;
+
+      while (true) {
+        const { data, error } = await supabase
+          .from('customers')
+          .select('id, customer_type_id')
+          .order('id', { ascending: true })
+          .range(from, from + batchSize - 1);
+
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+        for (const row of data) {
+          map.set(row.id, row.customer_type_id);
+        }
+        if (data.length < batchSize) break;
+        from += batchSize;
       }
       return map;
     },
