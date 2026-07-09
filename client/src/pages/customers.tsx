@@ -106,12 +106,21 @@ export default function Customers() {
 
   const handleBulkAssign = async () => {
     if (!bulkTypeId || selectedIds.size === 0) return;
+    // Only apply to rows still visible under the current filter/search —
+    // selection can go stale when quick-set or search removes rows.
+    const visibleSelected = filteredCustomers
+      .filter(c => selectedIds.has(c.id))
+      .map(c => c.id);
+    if (visibleSelected.length === 0) {
+      setSelectedIds(new Set());
+      return;
+    }
     try {
       await bulkUpdateCustomerType.mutateAsync({
-        customerIds: Array.from(selectedIds),
+        customerIds: visibleSelected,
         customerTypeId: parseInt(bulkTypeId),
       });
-      toast({ title: `${selectedIds.size} customer(s) updated` });
+      toast({ title: `${visibleSelected.length} customer(s) updated` });
       setSelectedIds(new Set());
       setBulkTypeId("");
     } catch (error: any) {

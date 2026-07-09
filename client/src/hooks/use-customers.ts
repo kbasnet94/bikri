@@ -309,12 +309,18 @@ export function useBulkUpdateCustomerType() {
 
   return useMutation({
     mutationFn: async ({ customerIds, customerTypeId }: { customerIds: number[]; customerTypeId: number }) => {
-      const { error } = await supabase
-        .from('customers')
-        .update({ customer_type_id: customerTypeId })
-        .in('id', customerIds);
+      // PostgREST in.() filters ride in the URL, so chunk large id lists
+      // (select-all can exceed 2,000 ids) to stay under request-line limits.
+      const CHUNK = 200;
+      for (let i = 0; i < customerIds.length; i += CHUNK) {
+        const slice = customerIds.slice(i, i + CHUNK);
+        const { error } = await supabase
+          .from('customers')
+          .update({ customer_type_id: customerTypeId })
+          .in('id', slice);
 
-      if (error) throw error;
+        if (error) throw error;
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['customers'] });
