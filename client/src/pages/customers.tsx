@@ -202,7 +202,8 @@ function CreateCustomerDialog({ open, onOpenChange }: any) {
   const { symbol } = useCurrency();
   const { data: customerTypes } = useCustomerTypes();
   const [selectedTypeId, setSelectedTypeId] = useState<string>("");
-  
+  const [typeError, setTypeError] = useState(false);
+
   const customerFormSchema = insertCustomerSchema.extend({
     phone: z.string().optional().refine(
       (val) => !val || /^\d{10}$/.test(val),
@@ -223,6 +224,10 @@ function CreateCustomerDialog({ open, onOpenChange }: any) {
   });
 
   const onSubmit = async (values: any) => {
+    if ((customerTypes || []).length > 0 && (!selectedTypeId || selectedTypeId === 'none')) {
+      setTypeError(true);
+      return;
+    }
     try {
       const creditLimitInCents = Math.round(values.creditLimit * 100);
       await createCustomer.mutateAsync({
@@ -234,6 +239,7 @@ function CreateCustomerDialog({ open, onOpenChange }: any) {
       onOpenChange(false);
       form.reset();
       setSelectedTypeId("");
+      setTypeError(false);
     } catch (error: any) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     }
@@ -260,18 +266,25 @@ function CreateCustomerDialog({ open, onOpenChange }: any) {
             />
             {(customerTypes || []).length > 0 && (
               <div className="space-y-2">
-                <label className="text-sm font-medium">Customer Type</label>
-                <Select value={selectedTypeId} onValueChange={setSelectedTypeId}>
-                  <SelectTrigger data-testid="select-customer-type">
-                    <SelectValue placeholder="Select type (optional)" />
+                <label className="text-sm font-medium">Customer Type *</label>
+                <Select
+                  value={selectedTypeId}
+                  onValueChange={(v) => { setSelectedTypeId(v); setTypeError(false); }}
+                >
+                  <SelectTrigger data-testid="select-customer-type" className={typeError ? "border-destructive" : undefined}>
+                    <SelectValue placeholder="Select type" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="none">None</SelectItem>
                     {customerTypes!.map(t => (
                       <SelectItem key={t.id} value={String(t.id)}>{t.name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+                {typeError && (
+                  <p className="text-sm font-medium text-destructive" data-testid="error-customer-type">
+                    Customer type is required
+                  </p>
+                )}
               </div>
             )}
             <div className="grid grid-cols-2 gap-4">
