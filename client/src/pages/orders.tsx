@@ -1221,6 +1221,10 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
       toast({ title: "Phone number must be exactly 10 digits", variant: "destructive" });
       return;
     }
+    if ((customerTypes || []).length > 0 && (!newCustomerTypeId || newCustomerTypeId === 'none')) {
+      toast({ title: "Customer type is required", variant: "destructive" });
+      return;
+    }
     try {
       const newCustomer = await createCustomer.mutateAsync({
         name: newCustomerName.trim(),
@@ -1453,13 +1457,12 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
                     </div>
                     {(customerTypes || []).length > 0 && (
                       <div>
-                        <Label className="text-xs">Customer Type</Label>
+                        <Label className="text-xs">Customer Type *</Label>
                         <Select value={newCustomerTypeId} onValueChange={setNewCustomerTypeId}>
                           <SelectTrigger className="h-9" data-testid="select-new-customer-type">
-                            <SelectValue placeholder="Select type (optional)" />
+                            <SelectValue placeholder="Select type" />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="none">None</SelectItem>
                             {customerTypes!.map(t => (
                               <SelectItem key={t.id} value={String(t.id)}>{t.name}</SelectItem>
                             ))}
