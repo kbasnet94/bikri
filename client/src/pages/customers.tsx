@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { useCustomersWithAging, useCustomer, useCreateCustomer, useCreateLedgerEntry, useCustomerLedger, useUpdateCustomerType, useBulkUpdateCustomerType } from "@/hooks/use-customers";
 import { useCurrency } from "@/hooks/use-currency";
 import { useAuth } from "@/hooks/use-auth";
@@ -46,6 +46,7 @@ import { Badge } from "@/components/ui/badge";
 import { api } from "@shared/routes";
 import Papa from "papaparse";
 import { ledgerBalanceDelta, isBalanceReducing } from '@/lib/ledger-math';
+import { findUntypedRows } from "@/lib/csv-customer-types";
 
 export default function Customers() {
   const [search, setSearch] = useState("");
@@ -988,6 +989,14 @@ function BulkCustomerUploadDialog({ open, onOpenChange }: { open: boolean; onOpe
 
   const expectedHeaders = ['name', 'email', 'phone', 'address', 'panVatNumber', 'creditLimit', 'customerType'];
 
+  const previewRows = parsedRows.slice(0, 5);
+
+  const untypedRowIndexes = useMemo(
+    () => findUntypedRows(parsedRows, (customerTypes || []).map(t => t.name)),
+    [parsedRows, customerTypes]
+  );
+  const untypedSet = new Set(untypedRowIndexes);
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1115,8 +1124,6 @@ function BulkCustomerUploadDialog({ open, onOpenChange }: { open: boolean; onOpe
     onOpenChange(false);
   };
 
-  const previewRows = parsedRows.slice(0, 5);
-
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) resetAndClose(); else onOpenChange(v); }}>
       <DialogContent className="max-w-2xl">
@@ -1132,7 +1139,7 @@ function BulkCustomerUploadDialog({ open, onOpenChange }: { open: boolean; onOpe
             <p className="text-muted-foreground text-xs mt-1">
               <strong>name</strong> is required. <strong>creditLimit</strong> is in currency units (e.g. 1500 = {symbol}1,500). 
               <strong> panVatNumber</strong> must be numeric only. <strong>phone</strong> must be exactly 10 digits and is used for duplicate detection.
-              <strong> customerType</strong> must match an existing type name (optional).
+              <strong> customerType</strong> must match an existing type name; blank or unmatched values import as Uncategorized.
             </p>
           </div>
 
@@ -1152,6 +1159,15 @@ function BulkCustomerUploadDialog({ open, onOpenChange }: { open: boolean; onOpe
                 <p className="text-sm font-medium">{fileName} - {parsedRows.length} row(s) parsed</p>
                 <p className="text-xs text-muted-foreground">Showing first {Math.min(5, parsedRows.length)} rows</p>
               </div>
+              {untypedRowIndexes.length > 0 && (
+                <div
+                  className="bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-700 rounded-lg p-3 text-sm text-amber-800 dark:text-amber-300"
+                  data-testid="warning-untyped-rows"
+                >
+                  {untypedRowIndexes.length} of {parsedRows.length} row(s) have a blank or unmatched
+                  customer type and will be imported as Uncategorized.
+                </div>
+              )}
               <div className="border rounded-lg overflow-auto max-h-48">
                 <Table>
                   <TableHeader>
@@ -1161,7 +1177,11 @@ function BulkCustomerUploadDialog({ open, onOpenChange }: { open: boolean; onOpe
                   </TableHeader>
                   <TableBody>
                     {previewRows.map((row, i) => (
-                      <TableRow key={i} data-testid={`preview-row-${i}`}>
+                      <TableRow
+                        key={i}
+                        data-testid={`preview-row-${i}`}
+                        className={cn(untypedSet.has(i) && "bg-amber-50 dark:bg-amber-900/10")}
+                      >
                         {expectedHeaders.map(h => (
                           <TableCell key={h} className="text-xs py-1">{row[h] || '-'}</TableCell>
                         ))}
