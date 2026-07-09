@@ -77,11 +77,21 @@ export function useCustomers(search?: string) {
   });
 }
 
+export interface AgingTotals {
+  bucket_0_30: number;     // cents
+  bucket_31_60: number;    // cents
+  bucket_61_90: number;    // cents
+  bucket_90_plus: number;  // cents
+  total_unpaid: number;    // cents
+}
+
 export function useCustomersWithAging(search?: string, includeAll?: boolean) {
   const { user } = useAuth();
 
   return useQuery({
-    queryKey: ['customers-with-aging', user?.businessId, search, includeAll ?? false],
+    // Keyed under ['customers', ...] so the blanket ['customers'] invalidations
+    // in order/payment mutations refresh this too (staleTime is Infinity).
+    queryKey: ['customers', 'with-aging', user?.businessId, search, includeAll ?? false],
     queryFn: async () => {
       // Fetch customers and aging buckets in parallel. We join client-side
       // by id rather than via a Supabase nested-select because customer_aging
@@ -167,6 +177,56 @@ export function useCustomersWithAging(search?: string, includeAll?: boolean) {
           },
         } as CustomerWithAging;
       });
+    },
+    enabled: !!user?.businessId,
+  });
+}
+
+export function useAgingTotals() {
+  const { user } = useAuth();
+
+  return useQuery({
+    // Keyed under ['customers', ...] so order/payment mutations that invalidate
+    // ['customers'] refresh these totals too (staleTime is Infinity).
+    queryKey: ['customers', 'aging-totals', user?.businessId],
+    queryFn: async () => {
+      // Business-wide A/R totals, independent of any page search/filter.
+      // Sum client-side while paging: PostgREST silently caps result sets
+      // (~1000 rows) and Supabase aggregate functions aren't enabled, so a
+      // single fetch over customer_aging would drop rows. Only rows with
+      // something unpaid matter for the sums.
+      const totals: AgingTotals = {
+        bucket_0_30: 0,
+        bucket_31_60: 0,
+        bucket_61_90: 0,
+        bucket_90_plus: 0,
+        total_unpaid: 0,
+      };
+      let from = 0;
+      const batchSize = 1000;
+
+      while (true) {
+        const { data, error } = await supabase
+          .from('customer_aging')
+          .select('id, bucket_0_30, bucket_31_60, bucket_61_90, bucket_90_plus, total_unpaid')
+          .gt('total_unpaid', 0)
+          .order('id', { ascending: true })
+          .range(from, from + batchSize - 1);
+
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+        for (const row of data as CustomerAging[]) {
+          totals.bucket_0_30 += row.bucket_0_30;
+          totals.bucket_31_60 += row.bucket_31_60;
+          totals.bucket_61_90 += row.bucket_61_90;
+          totals.bucket_90_plus += row.bucket_90_plus;
+          totals.total_unpaid += row.total_unpaid;
+        }
+        if (data.length < batchSize) break;
+        from += batchSize;
+      }
+
+      return totals;
     },
     enabled: !!user?.businessId,
   });
@@ -299,7 +359,6 @@ export function useUpdateCustomerType() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['customers'] });
-      queryClient.invalidateQueries({ queryKey: ['customers-with-aging'] });
     },
   });
 }
@@ -324,7 +383,6 @@ export function useBulkUpdateCustomerType() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['customers'] });
-      queryClient.invalidateQueries({ queryKey: ['customers-with-aging'] });
     },
   });
 }

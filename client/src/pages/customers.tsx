@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from "react";
-import { useCustomersWithAging, useCustomer, useCreateCustomer, useCreateLedgerEntry, useCustomerLedger, useUpdateCustomerType, useBulkUpdateCustomerType } from "@/hooks/use-customers";
+import { useCustomersWithAging, useAgingTotals, useCustomer, useCreateCustomer, useCreateLedgerEntry, useCustomerLedger, useUpdateCustomerType, useBulkUpdateCustomerType } from "@/hooks/use-customers";
 import { useCurrency } from "@/hooks/use-currency";
 import { useAuth } from "@/hooks/use-auth";
 import ExcelJS from "exceljs";
@@ -22,7 +22,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Search, Eye, Wallet, Calendar, DollarSign, FileText, Upload, AlertCircle, CheckCircle2, Download } from "lucide-react";
+import { Plus, Search, Eye, Wallet, Calendar, DollarSign, FileText, Upload, AlertCircle, CheckCircle2, Download, Clock, CalendarClock, AlertTriangle } from "lucide-react";
 import {
   getCurrentFiscalYear,
   getFiscalYearDates,
@@ -59,6 +59,7 @@ export default function Customers() {
   const [typeFilter, setTypeFilter] = useState<string>("all"); // 'all' | 'none' | String(typeId)
 
   const { data: customers, isLoading } = useCustomersWithAging(search, typeFilter !== 'all');
+  const { data: agingTotals } = useAgingTotals();
 
   const { data: customerTypes } = useCustomerTypes();
   const updateCustomerType = useUpdateCustomerType();
@@ -149,6 +150,66 @@ export default function Customers() {
             Add Customer
           </Button>
         </div>
+      </div>
+
+      {/* A/R KPI Cards — business-wide totals from the customer_aging view,
+          independent of the search/type filter below */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+        <Card className="p-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+              <Wallet className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Total Outstanding</p>
+              <p className="text-xl font-bold" data-testid="kpi-total-outstanding">{formatCurrency(agingTotals?.total_unpaid ?? 0)}</p>
+            </div>
+          </div>
+        </Card>
+        <Card className="p-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-green-100 dark:bg-green-900/30 rounded-lg">
+              <Clock className="w-5 h-5 text-green-600 dark:text-green-400" />
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">0–30 days</p>
+              <p className="text-xl font-bold" data-testid="kpi-bucket-0-30">{formatCurrency(agingTotals?.bucket_0_30 ?? 0)}</p>
+            </div>
+          </div>
+        </Card>
+        <Card className="p-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-amber-100 dark:bg-amber-900/30 rounded-lg">
+              <CalendarClock className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">31–60 days</p>
+              <p className="text-xl font-bold" data-testid="kpi-bucket-31-60">{formatCurrency(agingTotals?.bucket_31_60 ?? 0)}</p>
+            </div>
+          </div>
+        </Card>
+        <Card className="p-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-orange-100 dark:bg-orange-900/30 rounded-lg">
+              <AlertTriangle className="w-5 h-5 text-orange-600 dark:text-orange-400" />
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">61–90 days</p>
+              <p className="text-xl font-bold" data-testid="kpi-bucket-61-90">{formatCurrency(agingTotals?.bucket_61_90 ?? 0)}</p>
+            </div>
+          </div>
+        </Card>
+        <Card className="p-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-red-100 dark:bg-red-900/30 rounded-lg">
+              <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400" />
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">90+ days</p>
+              <p className="text-xl font-bold" data-testid="kpi-bucket-90-plus">{formatCurrency(agingTotals?.bucket_90_plus ?? 0)}</p>
+            </div>
+          </div>
+        </Card>
       </div>
 
       <div className="flex items-center gap-3 flex-wrap">
