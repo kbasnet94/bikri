@@ -52,6 +52,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
+import { openProFormaInvoice } from "@/lib/proforma-invoice";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 
@@ -59,6 +60,7 @@ const ORDER_STATUSES = [
   { value: "new", label: "New" },
   { value: "in-process", label: "In-process" },
   { value: "ready", label: "Ready for Dispatch" },
+  { value: "out-for-delivery", label: "Out for Delivery" },
   { value: "completed", label: "Complete" },
   { value: "cancelled", label: "Canceled" },
 ] as const;
@@ -75,6 +77,7 @@ function normalizeUploadStatus(status: string): string {
   if (s === 'complete' || s === 'completed') return 'completed';
   if (s === 'new') return 'new';
   if (s === 'ready' || s === 'ready for dispatch') return 'ready';
+  if (s === 'out for delivery' || s === 'out-for-delivery' || s === 'dispatched') return 'out-for-delivery';
   if (s === 'in progress' || s === 'in-process' || s === 'in process') return 'in-process';
   if (s === 'cancelled' || s === 'canceled') return 'cancelled';
   return 'new';
@@ -88,6 +91,8 @@ function getStatusBadgeStyle(status: string) {
       return "bg-yellow-100 text-yellow-700 border-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400 dark:border-yellow-800";
     case 'ready':
       return "bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-900/30 dark:text-purple-400 dark:border-purple-800";
+    case 'out-for-delivery':
+      return "bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-900/30 dark:text-orange-400 dark:border-orange-800";
     case 'completed':
       return "bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800";
     case 'cancelled':
@@ -362,7 +367,7 @@ export default function Orders() {
       </div>
 
       <Tabs value={activeTab} onValueChange={(val) => { setActiveTab(val); setSelectedOrders(new Set()); }} className="w-full">
-        <TabsList className="grid w-full grid-cols-5 h-auto p-1">
+        <TabsList className="grid w-full grid-cols-6 h-auto p-1">
           {ORDER_STATUSES.map((status) => (
             <TabsTrigger 
               key={status.value} 
@@ -731,6 +736,7 @@ function VatCalculationsDialog({ order, formatCurrency, open, onOpenChange }: { 
 function OrderDetails({ order, formatCurrency }: { order: any; formatCurrency: (cents: number) => string }) {
   const items = order.items || [];
   const [showVatCalc, setShowVatCalc] = useState(false);
+  const { user } = useAuth();
   
   return (
     <div className="space-y-4">
@@ -792,14 +798,24 @@ function OrderDetails({ order, formatCurrency }: { order: any; formatCurrency: (
       )}
       
       <div className="flex justify-between items-end pt-2 border-t">
-        <button
-          type="button"
-          className="text-sm text-primary underline underline-offset-2 cursor-pointer"
-          onClick={(e) => { e.stopPropagation(); setShowVatCalc(true); }}
-          data-testid={`link-vat-calculations-${order.id}`}
-        >
-          Show VAT Calculations
-        </button>
+        <div className="flex items-center gap-4">
+          <button
+            type="button"
+            className="text-sm text-primary underline underline-offset-2 cursor-pointer"
+            onClick={(e) => { e.stopPropagation(); setShowVatCalc(true); }}
+            data-testid={`link-vat-calculations-${order.id}`}
+          >
+            Show VAT Calculations
+          </button>
+          <button
+            type="button"
+            className="text-sm text-primary underline underline-offset-2 cursor-pointer"
+            onClick={(e) => { e.stopPropagation(); openProFormaInvoice(order, user?.businessName || 'Bikri', formatCurrency); }}
+            data-testid={`link-proforma-invoice-${order.id}`}
+          >
+            Pro Forma Invoice
+          </button>
+        </div>
         <div className="text-right space-y-0.5">
           {order.delivery_fee > 0 && (
             <div className="text-xs text-muted-foreground">
@@ -821,17 +837,30 @@ function OrderDetails({ order, formatCurrency }: { order: any; formatCurrency: (
   );
 }
 
+type EditableOrderItem = {
+  itemId?: number; // existing order_items.id; absent = newly added
+  productId: number;
+  variantId: number | null;
+  productName: string;
+  imageUrl: string | null;
+  unitPrice: number;
+  quantity: number;
+  discountPercent: number;
+};
+
 function EditOrderDialog({ order, open, onOpenChange }: { order: any; open: boolean; onOpenChange: (open: boolean) => void }) {
   const { formatCurrency, symbol } = useCurrency();
   const { toast } = useToast();
   const editOrder = useEditOrder();
   const deleteOrder = useDeleteOrder();
+  const { data: products } = useProducts();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  
+  const [addProductKey, setAddProductKey] = useState<string>("");
+
   const [note, setNote] = useState(order?.note || "");
   const [orderDate, setOrderDate] = useState(() => order?.order_date ? format(new Date(order.order_date), "yyyy-MM-dd") : format(new Date(), "yyyy-MM-dd"));
-  const [items, setItems] = useState<{ id: number; productName: string; imageUrl: string | null; unitPrice: number; quantity: number; discountPercent: number }[]>([]);
-  
+  const [items, setItems] = useState<EditableOrderItem[]>([]);
+
   useEffect(() => {
     if (order?.items) {
       setItems(order.items.map((item: any) => {
@@ -841,7 +870,9 @@ function EditOrderDialog({ order, open, onOpenChange }: { order: any; open: bool
           ? `${item.product?.name || `Product #${item.product_id}`} — ${variantName}`
           : (item.product?.name || `Product #${item.product_id}`);
         return {
-          id: item.id,
+          itemId: item.id,
+          productId: item.product_id,
+          variantId: item.variant_id ?? null,
           productName: displayName,
           imageUrl,
           unitPrice: item.unit_price,
@@ -851,24 +882,71 @@ function EditOrderDialog({ order, open, onOpenChange }: { order: any; open: bool
       }));
       setNote(order.note || "");
       setOrderDate(order.order_date ? format(new Date(order.order_date), "yyyy-MM-dd") : format(new Date(), "yyyy-MM-dd"));
+      setAddProductKey("");
     }
   }, [order]);
-  
-  const updateItem = (itemId: number, field: 'quantity' | 'discountPercent', value: number) => {
-    setItems(prev => prev.map(item => 
-      item.id === itemId ? { ...item, [field]: value } : item
+
+  // Flattened product/variant options for the add-product picker
+  const productOptions = (() => {
+    const opts: { key: string; label: string; productId: number; variantId: number | null; price: number; imageUrl: string | null }[] = [];
+    for (const p of (products || []) as any[]) {
+      if (p.has_variants && p.variants && p.variants.length > 0) {
+        for (const v of p.variants) {
+          opts.push({ key: `${p.id}-${v.id}`, label: `${p.name} — ${v.name}`, productId: p.id, variantId: v.id, price: v.price, imageUrl: v.image_url || p.image_url || null });
+        }
+      } else {
+        opts.push({ key: `${p.id}`, label: p.name, productId: p.id, variantId: null, price: p.price, imageUrl: p.image_url || null });
+      }
+    }
+    return opts;
+  })();
+
+  const rowKey = (item: EditableOrderItem) => item.itemId ? `existing-${item.itemId}` : `new-${item.productId}-${item.variantId ?? 'base'}`;
+
+  const handleAddProduct = () => {
+    const opt = productOptions.find(o => o.key === addProductKey);
+    if (!opt) return;
+    const alreadyInOrder = items.some(i => i.productId === opt.productId && (i.variantId ?? null) === opt.variantId);
+    if (alreadyInOrder) {
+      toast({ title: "Product already in this order", description: "Adjust its quantity instead.", variant: "destructive" });
+      return;
+    }
+    setItems(prev => [...prev, {
+      productId: opt.productId,
+      variantId: opt.variantId,
+      productName: opt.label,
+      imageUrl: opt.imageUrl,
+      unitPrice: opt.price,
+      quantity: 1,
+      discountPercent: 0,
+    }]);
+    setAddProductKey("");
+  };
+
+  const removeItem = (item: EditableOrderItem) => {
+    setItems(prev => prev.filter(i => rowKey(i) !== rowKey(item)));
+  };
+
+  const updateItem = (item: EditableOrderItem, field: 'quantity' | 'discountPercent', value: number) => {
+    setItems(prev => prev.map(i =>
+      rowKey(i) === rowKey(item) ? { ...i, [field]: value } : i
     ));
   };
-  
+
   const calculateTotal = () => {
-    return items.reduce((total, item) => {
-      const discountAmount = Math.round(item.unitPrice * item.discountPercent / 100);
+    const itemsTotal = items.reduce((total, item) => {
+      const discountAmount = Math.floor(item.unitPrice * item.discountPercent / 100);
       const effectivePrice = item.unitPrice - discountAmount;
       return total + (effectivePrice * item.quantity);
     }, 0);
+    return itemsTotal + (order?.delivery_fee || 0);
   };
-  
+
   const handleSave = async () => {
+    if (items.length === 0) {
+      toast({ title: "An order must have at least one item", description: "Use Delete Order to remove the whole order.", variant: "destructive" });
+      return;
+    }
     try {
       await editOrder.mutateAsync({
         id: order.id,
@@ -876,7 +954,9 @@ function EditOrderDialog({ order, open, onOpenChange }: { order: any; open: bool
           note: note || undefined,
           orderDate: orderDate,
           items: items.map(item => ({
-            id: item.id,
+            itemId: item.itemId,
+            productId: item.productId,
+            variantId: item.variantId,
             quantity: item.quantity,
             discountPercent: item.discountPercent,
           })),
@@ -902,43 +982,58 @@ function EditOrderDialog({ order, open, onOpenChange }: { order: any; open: bool
           <div className="text-sm font-medium">Order Items</div>
           <div className="space-y-3">
             {items.map((item) => {
-              const discountAmount = Math.round(item.unitPrice * item.discountPercent / 100);
+              const discountAmount = Math.floor(item.unitPrice * item.discountPercent / 100);
               const effectivePrice = item.unitPrice - discountAmount;
               const lineTotal = effectivePrice * item.quantity;
-              
+              const key = rowKey(item);
+
               return (
-                <div key={item.id} className="p-3 bg-muted/30 rounded-lg border space-y-2">
+                <div key={key} className="p-3 bg-muted/30 rounded-lg border space-y-2">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       {item.imageUrl && (
                         <img src={item.imageUrl} alt={item.productName} className="w-9 h-9 rounded object-cover border" />
                       )}
                       <div className="font-medium">{item.productName}</div>
+                      {!item.itemId && (
+                        <Badge variant="outline" className="text-[10px] bg-green-500/10 text-green-600 border-green-500/30">New</Badge>
+                      )}
                     </div>
-                    <div className="text-sm text-muted-foreground">
-                      {formatCurrency(item.unitPrice)} each
+                    <div className="flex items-center gap-2">
+                      <div className="text-sm text-muted-foreground">
+                        {formatCurrency(item.unitPrice)} each
+                      </div>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-7 w-7 text-red-500 hover:text-red-700"
+                        onClick={() => removeItem(item)}
+                        data-testid={`button-remove-edit-item-${key}`}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
                     </div>
                   </div>
                   <div className="grid grid-cols-3 gap-3">
                     <div>
                       <Label className="text-xs">Quantity</Label>
-                      <Input 
-                        type="number" 
-                        min="1" 
+                      <Input
+                        type="number"
+                        min="1"
                         value={item.quantity}
-                        onChange={(e) => updateItem(item.id, 'quantity', Math.max(1, parseInt(e.target.value) || 1))}
-                        data-testid={`input-edit-qty-${item.id}`}
+                        onChange={(e) => updateItem(item, 'quantity', Math.max(1, parseInt(e.target.value) || 1))}
+                        data-testid={`input-edit-qty-${key}`}
                       />
                     </div>
                     <div>
                       <Label className="text-xs">Discount %</Label>
-                      <Input 
-                        type="number" 
-                        min="0" 
+                      <Input
+                        type="number"
+                        min="0"
                         max="100"
                         value={item.discountPercent}
-                        onChange={(e) => updateItem(item.id, 'discountPercent', Math.min(100, Math.max(0, parseInt(e.target.value) || 0)))}
-                        data-testid={`input-edit-discount-${item.id}`}
+                        onChange={(e) => updateItem(item, 'discountPercent', Math.min(100, Math.max(0, parseInt(e.target.value) || 0)))}
+                        data-testid={`input-edit-discount-${key}`}
                       />
                     </div>
                     <div>
@@ -951,6 +1046,28 @@ function EditOrderDialog({ order, open, onOpenChange }: { order: any; open: bool
                 </div>
               );
             })}
+          </div>
+
+          <div className="flex items-end gap-2 p-3 border border-dashed rounded-lg">
+            <div className="flex-1">
+              <Label className="text-xs">Add Product</Label>
+              <Select value={addProductKey} onValueChange={setAddProductKey}>
+                <SelectTrigger data-testid="select-add-product-edit">
+                  <SelectValue placeholder="Select a product to add..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {productOptions.map(opt => (
+                    <SelectItem key={opt.key} value={opt.key}>
+                      {opt.label} — {formatCurrency(opt.price)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button size="sm" onClick={handleAddProduct} disabled={!addProductKey} data-testid="button-add-product-edit">
+              <Plus className="w-4 h-4 mr-1" />
+              Add
+            </Button>
           </div>
           
           <div>
@@ -1167,6 +1284,7 @@ function ProductRow({
 function CreateOrderDialog({ open, onOpenChange }: any) {
   const [step, setStep] = useState(1);
   const [customerId, setCustomerId] = useState<string>("");
+  const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
   const [cart, setCart] = useState<{ productId: number; variantId?: number; quantity: number; discountPercent: number; product: any; variant?: any }[]>([]);
   const [customerSearch, setCustomerSearch] = useState("");
   const [debouncedCustomerSearch, setDebouncedCustomerSearch] = useState("");
@@ -1202,13 +1320,19 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
   const { toast } = useToast();
   const { formatCurrency } = useCurrency();
 
-  const { data: nextVatNumber } = useNextVatBillNumber();
+  const { data: nextVatNumber, refetch: refetchNextVatNumber } = useNextVatBillNumber();
 
   useEffect(() => {
     if (includeVat && nextVatNumber) {
       setVatBillNumber(String(nextVatNumber));
     }
   }, [includeVat, nextVatNumber]);
+
+  // Re-read the latest VAT bill number from the DB every time VAT is toggled
+  // on, so back-to-back orders don't reuse a stale suggestion.
+  useEffect(() => {
+    if (includeVat) refetchNextVatNumber();
+  }, [includeVat, refetchNextVatNumber]);
 
   const filteredCustomers = customers || [];
 
@@ -1235,6 +1359,7 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
         customerTypeId: newCustomerTypeId && newCustomerTypeId !== 'none' ? parseInt(newCustomerTypeId) : null,
       });
       setCustomerId(newCustomer.id.toString());
+      setSelectedCustomer(newCustomer);
       setShowNewCustomerForm(false);
       setNewCustomerName("");
       setNewCustomerPhone("");
@@ -1344,11 +1469,19 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
       });
       
       console.log('[CreateOrder] Order created successfully:', newOrder);
-      toast({ title: "Order created successfully!", description: `Order #${newOrder.id} has been created.` });
+      if (newOrder.vatBillNumberAdjusted) {
+        toast({
+          title: "Order created — VAT bill number adjusted",
+          description: `The suggested VAT bill number was already taken. Order #${newOrder.id} was saved with VAT bill #${newOrder.vat_bill_number}.`,
+        });
+      } else {
+        toast({ title: "Order created successfully!", description: `Order #${newOrder.id} has been created.` });
+      }
       
       // Reset state
       setStep(1);
       setCustomerId("");
+      setSelectedCustomer(null);
       setCart([]);
       setOrderNote("");
       setPaymentStatus("");
@@ -1516,7 +1649,7 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
                         "p-4 rounded-xl border cursor-pointer transition-all hover:border-primary",
                         customerId === c.id.toString() ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border"
                       )}
-                      onClick={() => setCustomerId(c.id.toString())}
+                      onClick={() => { setCustomerId(c.id.toString()); setSelectedCustomer(c); }}
                       data-testid={`customer-card-${c.id}`}
                     >
                       <div className="font-medium">{c.name}</div>
@@ -1531,11 +1664,23 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
 
           {step === 2 && (
             <div className="space-y-6">
+              {selectedCustomer && (
+                <div className="flex items-center gap-3 p-3 rounded-lg border border-primary/30 bg-primary/5" data-testid="step2-customer-banner">
+                  <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                    <ShoppingCart className="w-4 h-4 text-primary" />
+                  </div>
+                  <div className="min-w-0 text-sm">
+                    <span className="font-semibold">{selectedCustomer.name}</span>
+                    {selectedCustomer.phone && <span className="text-muted-foreground"> · {selectedCustomer.phone}</span>}
+                    {selectedCustomer.address && <span className="text-muted-foreground"> · {selectedCustomer.address}</span>}
+                  </div>
+                </div>
+              )}
               <div className="flex justify-between items-center">
                 <h3 className="font-semibold text-lg">Add Products</h3>
                 <div className="text-sm text-muted-foreground">{cart.length} items in cart</div>
               </div>
-              
+
               <Select value={selectedCategory} onValueChange={setSelectedCategory}>
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder="All Categories" />
@@ -2158,7 +2303,7 @@ function BulkOrderUploadDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                 <p className="text-muted-foreground text-xs mt-1">
                   <strong>orderRef</strong> is a temporary ID to link items (e.g. "ORD-1").
                   <strong> customerRefID</strong> = customer's database ID.
-                  <strong> status</strong>: new, in-process, ready, completed.
+                  <strong> status</strong>: new, in-process, ready, out-for-delivery, completed.
                   <strong> paymentStatus</strong>: COD, Bank Transfer/QR, Credit.
                   <strong> orderDate</strong>: YYYY-MM-DD.
                   <strong> vatBillNumber</strong>: numeric only.

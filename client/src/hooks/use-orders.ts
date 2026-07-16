@@ -136,7 +136,7 @@ export function useOrderCounts(params?: {
       params?.search, params?.paymentFilter, params?.dateFrom, params?.dateTo,
     ],
     queryFn: async () => {
-      const statuses = ['new', 'in-process', 'ready', 'completed', 'cancelled'];
+      const statuses = ['new', 'in-process', 'ready', 'out-for-delivery', 'completed', 'cancelled'];
       const counts: Record<string, number> = {};
 
       let customerIds: number[] | null = null;
@@ -222,6 +222,19 @@ export function useCreateOrder() {
     }) => {
       if (!user?.businessId) throw new Error('No business selected');
 
+      // Guard against duplicate VAT bill numbers: the suggested number can go
+      // stale when orders are created back-to-back. Re-check right before
+      // insert and bump to a fresh max+1 if the number is already taken.
+      let finalVatBillNumber = orderData.vatBillNumber || null;
+      let vatBillNumberAdjusted = false;
+      if (finalVatBillNumber) {
+        const taken = await isVatBillNumberTaken(user.businessId, finalVatBillNumber);
+        if (taken) {
+          finalVatBillNumber = String(await fetchNextVatBillNumber(user.businessId));
+          vatBillNumberAdjusted = true;
+        }
+      }
+
       // Fetch products to calculate prices
       const productIds = [...new Set(orderData.items.map(item => item.productId))];
       const { data: products, error: productsError } = await supabase
@@ -289,7 +302,7 @@ export function useCreateOrder() {
           total_amount: totalAmount,
           delivery_fee: deliveryFee,
           note: orderData.note || null,
-          vat_bill_number: orderData.vatBillNumber || null,
+          vat_bill_number: finalVatBillNumber,
           order_date: orderData.orderDate || new Date().toISOString(),
         })
         .select()
@@ -351,7 +364,7 @@ export function useCreateOrder() {
 
       // Create purchase ledger entry (debit)
       let ledgerDesc = `Order #${order.id} - ${orderData.paymentStatus}`;
-      if (orderData.vatBillNumber) ledgerDesc += ` | VAT #${orderData.vatBillNumber}`;
+      if (finalVatBillNumber) ledgerDesc += ` | VAT #${finalVatBillNumber}`;
       if (deliveryFee > 0) ledgerDesc += ` (incl. delivery fee ${(deliveryFee / 100).toFixed(2)})`;
 
       const entryDate = orderData.orderDate || new Date().toISOString();
@@ -399,7 +412,7 @@ export function useCreateOrder() {
         }
       }
 
-      return order as Order;
+      return { ...(order as Order), vatBillNumberAdjusted };
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['orders'] });
@@ -562,8 +575,14 @@ export function useUpdateOrderStatus() {
   });
 }
 
+// Full order edit: change quantities/discounts, remove items, add new items.
+// Keeps stock, inventory movements, the purchase ledger entry, the auto
+// payment entry (COD/Bank) and the customer balance (Credit) in sync with the
+// new total — the earlier version only rewrote total_amount and left all of
+// those stale.
 export function useEditOrder() {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
 
   return useMutation({
     mutationFn: async ({ id, data }: {
@@ -571,60 +590,200 @@ export function useEditOrder() {
       data: {
         note?: string;
         orderDate?: string;
-        items?: { id: number; quantity: number; discountPercent: number }[];
+        items?: {
+          itemId?: number; // existing order_items.id; absent = new item
+          productId: number;
+          variantId?: number | null;
+          quantity: number;
+          discountPercent: number;
+        }[];
       };
     }) => {
+      if (!user?.businessId) throw new Error('No business selected');
+
+      const { data: order, error: orderFetchError } = await supabase
+        .from('orders')
+        .select('customer_id, total_amount, delivery_fee, payment_status, status, order_date')
+        .eq('id', id)
+        .single();
+
+      if (orderFetchError) throw orderFetchError;
+      if (order.status === 'cancelled') {
+        throw new Error('Cancelled orders cannot be edited.');
+      }
+
       const updates: any = {};
       if (data.note !== undefined) updates.note = data.note;
       if (data.orderDate !== undefined) updates.order_date = data.orderDate;
 
-      // Update order
-      const { error: orderError } = await supabase
-        .from('orders')
-        .update(updates)
-        .eq('id', id);
+      if (Object.keys(updates).length > 0) {
+        const { error: orderError } = await supabase
+          .from('orders')
+          .update(updates)
+          .eq('id', id);
+        if (orderError) throw orderError;
+      }
 
-      if (orderError) throw orderError;
-
-      // Update order items if provided
       if (data.items) {
-        for (const item of data.items) {
-          // Fetch product price to recalculate
-          const { data: orderItem } = await supabase
-            .from('order_items')
-            .select('*, product:products(price)')
-            .eq('id', item.id)
-            .single();
+        const { data: existingItems, error: itemsFetchError } = await supabase
+          .from('order_items')
+          .select('id, product_id, variant_id, quantity, unit_price, discount')
+          .eq('order_id', id);
+        if (itemsFetchError) throw itemsFetchError;
 
-          if (orderItem) {
-            const product = orderItem.product as any;
-            const discount = Math.floor(product.price * (item.discountPercent / 100));
+        const keptIds = new Set(data.items.filter(i => i.itemId).map(i => i.itemId!));
+        const removedItems = (existingItems || []).filter(ei => !keptIds.has(ei.id));
 
-            await supabase
-              .from('order_items')
-              .update({
-                quantity: item.quantity,
-                discount: discount,
-              })
-              .eq('id', item.id);
+        // Applies a stock change and records the inventory movement.
+        const adjustStock = async (
+          productId: number,
+          variantId: number | null,
+          delta: number, // positive = stock returned, negative = stock sold
+          note: string,
+        ) => {
+          if (delta === 0) return;
+          let newStock: number;
+          if (variantId) {
+            const { data: variant } = await supabase
+              .from('product_variants')
+              .select('stock_quantity')
+              .eq('id', variantId)
+              .single();
+            newStock = (variant?.stock_quantity ?? 0) + delta;
+            await supabase.from('product_variants').update({ stock_quantity: newStock }).eq('id', variantId);
+          } else {
+            const { data: product } = await supabase
+              .from('products')
+              .select('stock_quantity')
+              .eq('id', productId)
+              .single();
+            newStock = (product?.stock_quantity ?? 0) + delta;
+            await supabase.from('products').update({ stock_quantity: newStock }).eq('id', productId);
           }
+          await supabase.from('inventory_movements').insert({
+            business_id: user.businessId,
+            product_id: productId,
+            variant_id: variantId,
+            movement_type: delta > 0 ? 'return' : 'sale',
+            quantity_change: delta,
+            balance_after: newStock,
+            order_id: id,
+            notes: note,
+            movement_date: new Date().toISOString(),
+          });
+        };
+
+        // 1. Removed items: restore stock, delete row
+        for (const ri of removedItems) {
+          await adjustStock(ri.product_id, ri.variant_id, ri.quantity, `Order #${id} edited - item removed, stock restored`);
+          const { error: delErr } = await supabase.from('order_items').delete().eq('id', ri.id);
+          if (delErr) throw delErr;
         }
 
-        // Recalculate total
-        const { data: items } = await supabase
+        // 2. Existing items: apply quantity delta, update row
+        for (const item of data.items.filter(i => i.itemId)) {
+          const existing = (existingItems || []).find(ei => ei.id === item.itemId);
+          if (!existing) continue;
+
+          const discount = Math.floor(existing.unit_price * (item.discountPercent / 100));
+          const qtyDelta = existing.quantity - item.quantity; // positive = stock returned
+          await adjustStock(existing.product_id, existing.variant_id, qtyDelta, `Order #${id} edited - quantity ${existing.quantity} → ${item.quantity}`);
+
+          const { error: updErr } = await supabase
+            .from('order_items')
+            .update({ quantity: item.quantity, discount })
+            .eq('id', item.itemId);
+          if (updErr) throw updErr;
+        }
+
+        // 3. New items: snapshot current price, insert row, deduct stock
+        const newItems = data.items.filter(i => !i.itemId);
+        for (const item of newItems) {
+          let unitPrice: number;
+          if (item.variantId) {
+            const { data: variant, error: vErr } = await supabase
+              .from('product_variants')
+              .select('price')
+              .eq('id', item.variantId)
+              .single();
+            if (vErr) throw vErr;
+            unitPrice = variant.price;
+          } else {
+            const { data: product, error: pErr } = await supabase
+              .from('products')
+              .select('price')
+              .eq('id', item.productId)
+              .single();
+            if (pErr) throw pErr;
+            unitPrice = product.price;
+          }
+          const discount = Math.floor(unitPrice * (item.discountPercent / 100));
+
+          const { error: insErr } = await supabase.from('order_items').insert({
+            order_id: id,
+            product_id: item.productId,
+            variant_id: item.variantId || null,
+            quantity: item.quantity,
+            unit_price: unitPrice,
+            discount,
+          });
+          if (insErr) throw insErr;
+
+          await adjustStock(item.productId, item.variantId || null, -item.quantity, `Order #${id} edited - item added`);
+        }
+
+        // 4. Recalculate total from the DB (items + delivery fee)
+        const { data: finalItems, error: finalErr } = await supabase
           .from('order_items')
           .select('quantity, unit_price, discount')
           .eq('order_id', id);
+        if (finalErr) throw finalErr;
 
-        if (items) {
-          const total = items.reduce((sum, item) => {
-            return sum + ((item.unit_price - item.discount) * item.quantity);
-          }, 0);
+        const itemsTotal = (finalItems || []).reduce(
+          (sum, it) => sum + ((it.unit_price - it.discount) * it.quantity), 0);
+        const newTotal = itemsTotal + (order.delivery_fee || 0);
+        const totalDelta = newTotal - order.total_amount;
 
-          await supabase
-            .from('orders')
-            .update({ total_amount: total })
-            .eq('id', id);
+        const { error: totErr } = await supabase
+          .from('orders')
+          .update({ total_amount: newTotal })
+          .eq('id', id);
+        if (totErr) throw totErr;
+
+        if (totalDelta !== 0) {
+          // 5. Sync the purchase ledger entry amount
+          const { error: ledErr } = await supabase
+            .from('ledger_entries')
+            .update({ amount: newTotal })
+            .eq('order_id', id)
+            .eq('type', 'purchase');
+          if (ledErr) throw ledErr;
+
+          // 6. COD/Bank orders carry an auto payment entry that must match
+          if (order.payment_status === 'COD' || order.payment_status === 'Bank Transfer/QR') {
+            const { error: payErr } = await supabase
+              .from('ledger_entries')
+              .update({ amount: newTotal })
+              .eq('order_id', id)
+              .eq('type', 'payment');
+            if (payErr) throw payErr;
+          }
+
+          // 7. Credit orders: shift the customer balance by the delta
+          if (order.payment_status === 'Credit') {
+            const { data: customer } = await supabase
+              .from('customers')
+              .select('current_balance')
+              .eq('id', order.customer_id)
+              .single();
+            if (customer) {
+              const { error: balErr } = await supabase
+                .from('customers')
+                .update({ current_balance: customer.current_balance + totalDelta })
+                .eq('id', order.customer_id);
+              if (balErr) throw balErr;
+            }
+          }
         }
       }
 
@@ -632,6 +791,11 @@ export function useEditOrder() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['orders'] });
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      queryClient.invalidateQueries({ queryKey: ['inventory'] });
+      queryClient.invalidateQueries({ queryKey: ['product-variants'] });
+      queryClient.invalidateQueries({ queryKey: ['ledger'] });
     },
   });
 }
@@ -819,10 +983,60 @@ export function useUpdatePaymentStatus() {
   });
 }
 
-// Helper function to get next VAT bill number
+// Compute the next VAT bill number directly from the DB.
 // Scoped to the current Nepali fiscal year (Shrawan 1 – Ashad 31).
 // VAT bill numbering resets to 1 at the start of each fiscal year.
-// Within a fiscal year, it finds the highest existing number and returns +1.
+// Paginates in 1000-row batches — PostgREST caps a single fetch at 1000 rows,
+// which silently hid the true max once a fiscal year exceeded 1000 VAT bills.
+export async function fetchNextVatBillNumber(businessId: string): Promise<number> {
+  const { start, end } = getFiscalYearDates(getCurrentFiscalYear());
+  const startISO = start.toISOString();
+  const endISO = end.toISOString();
+
+  let maxNumber = 0;
+  let from = 0;
+  const batchSize = 1000;
+
+  while (true) {
+    const { data, error } = await supabase
+      .from('orders')
+      .select('vat_bill_number')
+      .eq('business_id', businessId)
+      .not('vat_bill_number', 'is', null)
+      .gte('order_date', startISO)
+      .lte('order_date', endISO)
+      .range(from, from + batchSize - 1);
+
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+
+    for (const o of data) {
+      const n = parseInt(o.vat_bill_number!, 10);
+      if (!isNaN(n) && n > maxNumber) maxNumber = n;
+    }
+
+    if (data.length < batchSize) break;
+    from += batchSize;
+  }
+
+  return maxNumber + 1;
+}
+
+// Checks whether a VAT bill number is already used in the current fiscal year.
+export async function isVatBillNumberTaken(businessId: string, vatBillNumber: string): Promise<boolean> {
+  const { start, end } = getFiscalYearDates(getCurrentFiscalYear());
+  const { count, error } = await supabase
+    .from('orders')
+    .select('id', { count: 'exact', head: true })
+    .eq('business_id', businessId)
+    .eq('vat_bill_number', vatBillNumber)
+    .gte('order_date', start.toISOString())
+    .lte('order_date', end.toISOString());
+
+  if (error) throw error;
+  return (count ?? 0) > 0;
+}
+
 export function useNextVatBillNumber() {
   const { user } = useAuth();
   const currentFY = getCurrentFiscalYear();
@@ -831,36 +1045,13 @@ export function useNextVatBillNumber() {
     queryKey: ['vat', 'next-bill-number', user?.businessId, currentFY],
     queryFn: async () => {
       if (!user?.businessId) return 1;
-
-      // Get current fiscal year date range
-      const { start, end } = getFiscalYearDates(currentFY);
-      const startISO = start.toISOString();
-      const endISO = end.toISOString();
-
-      // Fetch VAT bill numbers only from orders within the current fiscal year
-      const { data: orders, error } = await supabase
-        .from('orders')
-        .select('vat_bill_number')
-        .eq('business_id', user.businessId)
-        .not('vat_bill_number', 'is', null)
-        .gte('order_date', startISO)
-        .lte('order_date', endISO);
-
-      if (error) throw error;
-
-      if (!orders || orders.length === 0) return 1;
-
-      // Parse all VAT bill numbers as integers and find the max
-      const numbers = orders
-        .map(o => parseInt(o.vat_bill_number!, 10))
-        .filter(n => !isNaN(n));
-
-      if (numbers.length === 0) return 1;
-
-      const maxNumber = Math.max(...numbers);
-      return maxNumber + 1;
+      return fetchNextVatBillNumber(user.businessId);
     },
     enabled: !!user?.businessId,
+    // Always re-read on mount/focus — a stale suggestion here is what caused
+    // duplicate VAT bill numbers when creating orders back-to-back.
+    staleTime: 0,
+    refetchOnWindowFocus: true,
   });
 }
 

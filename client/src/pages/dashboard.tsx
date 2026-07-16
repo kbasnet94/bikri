@@ -396,6 +396,7 @@ export default function Dashboard() {
                         order.status === 'new' ? "bg-blue-100 text-blue-700" :
                         order.status === 'in-process' ? "bg-yellow-100 text-yellow-700" :
                         order.status === 'ready' ? "bg-purple-100 text-purple-700" :
+                        order.status === 'out-for-delivery' ? "bg-orange-100 text-orange-700" :
                         order.status === 'cancelled' ? "bg-red-100 text-red-700" :
                         "bg-gray-100 text-gray-700"
                       )}>
