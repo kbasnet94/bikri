@@ -275,7 +275,7 @@ export default function Account() {
   };
 
   const isOwner = user?.role === "owner";
-  const isAdmin = user?.role === "admin";
+  const isAdmin = (user?.roles ?? []).includes("admin");
   const canManageUsers = canAccess(user?.roles ?? [], "users");
 
   if (!user?.businessId) {

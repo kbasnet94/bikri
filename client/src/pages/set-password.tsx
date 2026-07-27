@@ -67,22 +67,30 @@ export default function SetPassword() {
     try {
       const { error } = await supabase.auth.updateUser({ password });
       if (error) throw error;
-
-      await supabase.auth.updateUser({ data: { must_change_password: false } });
-
-      setIsDone(true);
-      toast({ title: "Password set successfully!" });
-
-      setTimeout(() => setLocation("/"), 2000);
     } catch (error: any) {
       toast({
         title: "Failed to set password",
         description: error.message || "Please try again",
         variant: "destructive",
       });
-    } finally {
       setIsLoading(false);
+      return;
     }
+
+    // Password update succeeded — the user is past the gate regardless of
+    // whether this best-effort metadata clear succeeds. Don't block on it,
+    // and don't let a failure here surface as a "failed to set password" error.
+    try {
+      await supabase.auth.updateUser({ data: { must_change_password: false } });
+    } catch (error) {
+      console.error("[SetPassword] Failed to clear must_change_password flag:", error);
+    }
+
+    setIsDone(true);
+    toast({ title: "Password set successfully!" });
+    setIsLoading(false);
+
+    setTimeout(() => setLocation("/"), 2000);
   };
 
   return (
