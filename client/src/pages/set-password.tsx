@@ -68,6 +68,8 @@ export default function SetPassword() {
       const { error } = await supabase.auth.updateUser({ password });
       if (error) throw error;
 
+      await supabase.auth.updateUser({ data: { must_change_password: false } });
+
       setIsDone(true);
       toast({ title: "Password set successfully!" });
 

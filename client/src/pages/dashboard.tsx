@@ -13,6 +13,8 @@ import { format, subMonths, startOfMonth, endOfMonth } from "date-fns";
 import { Skeleton } from "@/components/ui/skeleton";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from "recharts";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/hooks/use-auth";
+import { canAccess } from "@/lib/roles";
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const TYPE_COLORS = [
@@ -22,6 +24,8 @@ const TYPE_COLORS = [
 ];
 
 export default function Dashboard() {
+  const { user } = useAuth();
+  const canSeeFinancials = canAccess(user?.roles ?? [], "dashboard-financials");
   const currentYear = new Date().getFullYear();
   const [selectedYear, setSelectedYear] = useState(currentYear);
   const [stackMode, setStackMode] = useState<'percent' | 'absolute'>('percent');
@@ -148,12 +152,14 @@ export default function Dashboard() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <StatsCard
-          title="Total Revenue"
-          value={formatCurrencyShort(totalSales)}
-          icon={DollarSign}
-          description={`From ${completedOrders.length.toLocaleString()} completed orders`}
-        />
+        {canSeeFinancials && (
+          <StatsCard
+            title="Total Revenue"
+            value={formatCurrencyShort(totalSales)}
+            icon={DollarSign}
+            description={`From ${completedOrders.length.toLocaleString()} completed orders`}
+          />
+        )}
         <StatsCard
           title="Low Stock Alerts"
           value={lowStockProducts.length}
@@ -161,12 +167,14 @@ export default function Dashboard() {
           description="Products with < 10 units"
           className={lowStockProducts.length > 0 ? "border-orange-200 bg-orange-50/50 dark:bg-orange-900/10 dark:border-orange-900" : ""}
         />
-        <StatsCard
-          title="Outstanding Credit"
-          value={formatCurrencyShort(totalCreditBalance)}
-          icon={Users}
-          description="Total customer debt"
-        />
+        {canSeeFinancials && (
+          <StatsCard
+            title="Outstanding Credit"
+            value={formatCurrencyShort(totalCreditBalance)}
+            icon={Users}
+            description="Total customer debt"
+          />
+        )}
         <StatsCard
           title="Active Customers"
           value={customerStats?.totalCustomers || 0}
@@ -176,49 +184,51 @@ export default function Dashboard() {
       </div>
 
       {/* Monthly Revenue Chart */}
-      <Card className="shadow-sm">
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 gap-4 pb-2">
-          <CardTitle>Monthly Revenue</CardTitle>
-          <Select value={selectedYear.toString()} onValueChange={(val) => setSelectedYear(parseInt(val))}>
-            <SelectTrigger className="w-[120px]" data-testid="select-year">
-              <SelectValue placeholder="Select year" />
-            </SelectTrigger>
-            <SelectContent>
-              {availableYears.map(year => (
-                <SelectItem key={year} value={year.toString()}>{year}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </CardHeader>
-        <CardContent className="pl-2">
-          <div className="h-[280px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={monthlyRevenueData}>
-                <XAxis 
-                  dataKey="month" 
-                  stroke="#888888" 
-                  fontSize={12} 
-                  tickLine={false} 
-                  axisLine={false} 
-                />
-                <YAxis
-                  stroke="#888888"
-                  fontSize={12}
-                  tickLine={false}
-                  axisLine={false}
-                  tickFormatter={(value) => `${symbol}${value}`}
-                />
-                <Tooltip 
-                  cursor={{fill: 'transparent'}}
-                  contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
-                  formatter={(value: number) => [`${symbol}${value.toFixed(2)}`, 'Revenue']}
-                />
-                <Bar dataKey="revenue" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </CardContent>
-      </Card>
+      {canSeeFinancials && (
+        <Card className="shadow-sm">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 gap-4 pb-2">
+            <CardTitle>Monthly Revenue</CardTitle>
+            <Select value={selectedYear.toString()} onValueChange={(val) => setSelectedYear(parseInt(val))}>
+              <SelectTrigger className="w-[120px]" data-testid="select-year">
+                <SelectValue placeholder="Select year" />
+              </SelectTrigger>
+              <SelectContent>
+                {availableYears.map(year => (
+                  <SelectItem key={year} value={year.toString()}>{year}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </CardHeader>
+          <CardContent className="pl-2">
+            <div className="h-[280px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={monthlyRevenueData}>
+                  <XAxis
+                    dataKey="month"
+                    stroke="#888888"
+                    fontSize={12}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <YAxis
+                    stroke="#888888"
+                    fontSize={12}
+                    tickLine={false}
+                    axisLine={false}
+                    tickFormatter={(value) => `${symbol}${value}`}
+                  />
+                  <Tooltip
+                    cursor={{fill: 'transparent'}}
+                    contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
+                    formatter={(value: number) => [`${symbol}${value.toFixed(2)}`, 'Revenue']}
+                  />
+                  <Bar dataKey="revenue" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Revenue by Customer Type — Pie + Stacked Bar */}
       {pieData.length > 0 && (
