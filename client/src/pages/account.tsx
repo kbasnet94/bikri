@@ -257,7 +257,10 @@ export default function Account() {
   };
 
   const handleGeneratePassword = () => {
-    setNewUserPassword(Math.random().toString(36).slice(-10));
+    const charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    const randomValues = crypto.getRandomValues(new Uint32Array(12));
+    const password = Array.from(randomValues, (v) => charset[v % charset.length]).join("");
+    setNewUserPassword(password);
   };
 
   const handleAddUser = () => {
@@ -611,36 +614,47 @@ export default function Account() {
                       </div>
 
                       <div className="flex items-center gap-3">
-                        <Popover>
-                          <PopoverTrigger asChild>
-                            <Button variant="ghost" size="icon" data-testid={`button-edit-roles-${member.id}`}>
-                              <PencilLine className="h-4 w-4" />
-                            </Button>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-56 space-y-3">
-                            <p className="text-sm font-medium">Edit roles</p>
-                            <div className="grid grid-cols-1 gap-2">
-                              {ALL_ROLES.map((role) => {
-                                const checked = member.roles.includes(role);
-                                return (
-                                  <label key={role} className="flex items-center gap-2 text-sm">
-                                    <Checkbox
-                                      checked={checked}
-                                      onCheckedChange={(next) => {
-                                        const nextRoles = next === true
-                                          ? [...member.roles, role]
-                                          : member.roles.filter((r) => r !== role);
-                                        updateRolesMutation.mutate({ userId: member.id, roles: nextRoles });
-                                      }}
-                                      data-testid={`checkbox-edit-role-${member.id}-${role}`}
-                                    />
-                                    {role.charAt(0).toUpperCase() + role.slice(1)}
-                                  </label>
-                                );
-                              })}
-                            </div>
-                          </PopoverContent>
-                        </Popover>
+                        {member.id !== user?.id && (
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <Button variant="ghost" size="icon" data-testid={`button-edit-roles-${member.id}`}>
+                                <PencilLine className="h-4 w-4" />
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-56 space-y-3">
+                              <p className="text-sm font-medium">Edit roles</p>
+                              <div className="grid grid-cols-1 gap-2">
+                                {ALL_ROLES.map((role) => {
+                                  const checked = member.roles.includes(role);
+                                  return (
+                                    <label key={role} className="flex items-center gap-2 text-sm">
+                                      <Checkbox
+                                        checked={checked}
+                                        onCheckedChange={(next) => {
+                                          if (role === "admin" && next !== true) {
+                                            const activeAdminCount = (businessUsers ?? []).filter(
+                                              (m) => m.active && m.roles.includes("admin")
+                                            ).length;
+                                            if (activeAdminCount <= 1 && member.active) {
+                                              toast({ title: "At least one admin required", variant: "destructive" });
+                                              return;
+                                            }
+                                          }
+                                          const nextRoles = next === true
+                                            ? [...member.roles, role]
+                                            : member.roles.filter((r) => r !== role);
+                                          updateRolesMutation.mutate({ userId: member.id, roles: nextRoles });
+                                        }}
+                                        data-testid={`checkbox-edit-role-${member.id}-${role}`}
+                                      />
+                                      {role.charAt(0).toUpperCase() + role.slice(1)}
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            </PopoverContent>
+                          </Popover>
+                        )}
 
                         {isAdmin && member.id !== user?.id && (
                           <div className="flex items-center gap-2">

@@ -62,10 +62,14 @@ serve(async (req: Request) => {
 
     // Caller must be an admin member of this business.
     const { data: callerRow } = await supabaseAdmin
-      .from("business_users").select("roles")
+      .from("business_users").select("roles, active")
       .eq("user_id", caller.id).eq("business_id", businessId).single();
     if (!callerRow || !(callerRow.roles ?? []).includes("admin")) {
       return new Response(JSON.stringify({ error: "Only admins can create users" }),
+        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (callerRow.active !== true) {
+      return new Response(JSON.stringify({ error: "Account is inactive" }),
         { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 

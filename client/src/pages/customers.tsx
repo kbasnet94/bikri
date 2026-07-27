@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useMemo } from "react";
 import { useCustomersWithAging, useAgingTotals, useCustomer, useCreateCustomer, useCreateLedgerEntry, useCustomerLedger, useUpdateCustomerType, useBulkUpdateCustomerType } from "@/hooks/use-customers";
 import { useCurrency } from "@/hooks/use-currency";
 import { useAuth } from "@/hooks/use-auth";
+import { canAccess } from "@/lib/roles";
 import ExcelJS from "exceljs";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
@@ -49,6 +50,8 @@ import { ledgerBalanceDelta, isBalanceReducing } from '@/lib/ledger-math';
 import { findUntypedRows } from "@/lib/csv-customer-types";
 
 export default function Customers() {
+  const { user } = useAuth();
+  const canEditLedger = canAccess(user?.roles ?? [], "ledger-edit");
   const [search, setSearch] = useState("");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isBulkUploadOpen, setIsBulkUploadOpen] = useState(false);
@@ -137,10 +140,12 @@ export default function Customers() {
           <p className="text-muted-foreground">Manage client relationships and credit.</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <Button variant="outline" onClick={() => setIsBulkLedgerOpen(true)} data-testid="button-bulk-ledger">
-            <Upload className="w-4 h-4 mr-2" />
-            Upload Ledger
-          </Button>
+          {canEditLedger && (
+            <Button variant="outline" onClick={() => setIsBulkLedgerOpen(true)} data-testid="button-bulk-ledger">
+              <Upload className="w-4 h-4 mr-2" />
+              Upload Ledger
+            </Button>
+          )}
           <Button variant="outline" onClick={() => setIsBulkUploadOpen(true)} data-testid="button-bulk-customers">
             <Upload className="w-4 h-4 mr-2" />
             Upload Customers
@@ -615,6 +620,7 @@ function CustomerDetailsDialog({ customer: customerProp, open, onOpenChange }: a
   const [selectedFiscalYear, setSelectedFiscalYear] = useState<string>(String(getCurrentFiscalYear()));
   const { formatCurrency, formatCurrencyShort, symbol } = useCurrency();
   const { user } = useAuth();
+  const canEditLedger = canAccess(user?.roles ?? [], "ledger-edit");
   const ledgerEndRef = useRef<HTMLDivElement>(null);
 
   // Build fiscal year list from actual ledger entry dates (only years with data + current)
@@ -865,7 +871,12 @@ function CustomerDetailsDialog({ customer: customerProp, open, onOpenChange }: a
             <div className="flex flex-col gap-3 mb-4">
               <div className="flex justify-between items-center">
                 <h3 className="font-semibold text-lg">Transaction History</h3>
-                <Button size="sm" onClick={() => setIsAddingEntry(!isAddingEntry)} variant={isAddingEntry ? "secondary" : "default"}>
+                <Button
+                  size="sm"
+                  onClick={() => setIsAddingEntry(!isAddingEntry)}
+                  variant={isAddingEntry ? "secondary" : "default"}
+                  disabled={!canEditLedger}
+                >
                   {isAddingEntry ? "Cancel" : "Add Transaction"}
                 </Button>
               </div>
@@ -1287,6 +1298,7 @@ function BulkLedgerUploadDialog({ open, onOpenChange, customers }: { open: boole
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { user } = useAuth();
+  const canEditLedger = canAccess(user?.roles ?? [], "ledger-edit");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [parsedRows, setParsedRows] = useState<any[]>([]);
   const [fileName, setFileName] = useState("");
@@ -1312,7 +1324,7 @@ function BulkLedgerUploadDialog({ open, onOpenChange, customers }: { open: boole
   };
 
   const handleUpload = async () => {
-    if (parsedRows.length === 0 || !user?.businessId) return;
+    if (parsedRows.length === 0 || !user?.businessId || !canEditLedger) return;
     setIsUploading(true);
 
     const errors: string[] = [];
@@ -1471,9 +1483,13 @@ function BulkLedgerUploadDialog({ open, onOpenChange, customers }: { open: boole
               type="file"
               accept=".csv"
               onChange={handleFileChange}
+              disabled={!canEditLedger}
               data-testid="input-csv-ledger"
             />
           </div>
+          {!canEditLedger && (
+            <p className="text-xs text-muted-foreground">You don't have permission to import ledger entries.</p>
+          )}
 
           {parsedRows.length > 0 && (
             <div className="space-y-2">
@@ -1509,7 +1525,7 @@ function BulkLedgerUploadDialog({ open, onOpenChange, customers }: { open: boole
             <Button variant="outline" onClick={resetAndClose} data-testid="button-cancel-bulk-ledger">Cancel</Button>
             <Button
               onClick={handleUpload}
-              disabled={parsedRows.length === 0 || isUploading}
+              disabled={parsedRows.length === 0 || isUploading || !canEditLedger}
               data-testid="button-submit-bulk-ledger"
             >
               {isUploading ? "Uploading..." : `Upload ${parsedRows.length} Entry/Entries`}
