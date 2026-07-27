@@ -7,20 +7,14 @@ import { Loader2 } from "lucide-react";
 import { Logo } from "@/components/logo";
 import logoDark from "@assets/Bikri_Logo_1_1770108812464.png";
 import { useToast } from "@/hooks/use-toast";
-import { useLogin, useRegister } from "@/hooks/use-auth";
+import { useLogin } from "@/hooks/use-auth";
 import { useLocation } from "wouter";
 
-type AuthMode = "login" | "register";
-
 export default function Login() {
-  const [mode, setMode] = useState<AuthMode>("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [businessName, setBusinessName] = useState("");
   const { toast } = useToast();
   const loginMutation = useLogin();
-  const registerMutation = useRegister();
   const [, setLocation] = useLocation();
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -39,40 +33,7 @@ export default function Login() {
     }
   };
 
-  const handleRegister = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (password !== confirmPassword) {
-      toast({ title: "Passwords don't match", variant: "destructive" });
-      return;
-    }
-
-    if (password.length < 6) {
-      toast({ title: "Password must be at least 6 characters", variant: "destructive" });
-      return;
-    }
-
-    try {
-      await registerMutation.mutateAsync({ 
-        email, 
-        password, 
-        businessName: businessName || undefined 
-      });
-      toast({ 
-        title: "Account created!", 
-        description: "You can now sign in with your credentials." 
-      });
-      setMode("login");
-    } catch (error: any) {
-      toast({ 
-        title: "Registration failed", 
-        description: error.message || "Could not create account", 
-        variant: "destructive" 
-      });
-    }
-  };
-
-  const isLoading = loginMutation.isPending || registerMutation.isPending;
+  const isLoading = loginMutation.isPending;
 
   return (
     <div className="min-h-screen w-full flex bg-background">
@@ -172,124 +133,44 @@ export default function Login() {
               <Logo size="lg" />
             </div>
             <CardTitle className="text-2xl font-bold font-display">
-              {mode === "login" ? "Welcome back" : "Create an account"}
+              Welcome back
             </CardTitle>
             <CardDescription>
-              {mode === "login" ? "Sign in to your account" : "Get started with Bikri"}
+              Sign in to your account
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {mode === "login" && (
-              <form onSubmit={handleLogin} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    placeholder="you@example.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required
-                    data-testid="input-email"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="password">Password</Label>
-                  <Input
-                    id="password"
-                    type="password"
-                    placeholder="Enter your password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                    data-testid="input-password"
-                  />
-                </div>
-                <Button type="submit" className="w-full" disabled={isLoading} data-testid="button-login">
-                  {isLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
-                  Sign In
-                </Button>
-                <div className="text-center text-sm text-muted-foreground">
-                  Don't have an account?{" "}
-                  <button
-                    type="button"
-                    className="text-primary hover:underline font-medium"
-                    onClick={() => setMode("register")}
-                    data-testid="link-register"
-                  >
-                    Sign up
-                  </button>
-                </div>
-              </form>
-            )}
+            <form onSubmit={handleLogin} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="you@example.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  data-testid="input-email"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="password">Password</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  placeholder="Enter your password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  data-testid="input-password"
+                />
+              </div>
+              <Button type="submit" className="w-full" disabled={isLoading} data-testid="button-login">
+                {isLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                Sign In
+              </Button>
+            </form>
 
-            {mode === "register" && (
-              <form onSubmit={handleRegister} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    placeholder="you@example.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required
-                    data-testid="input-email"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="businessName">Business Name (optional)</Label>
-                  <Input
-                    id="businessName"
-                    placeholder="Your Company Name"
-                    value={businessName}
-                    onChange={(e) => setBusinessName(e.target.value)}
-                    data-testid="input-business-name"
-                  />
-                  <p className="text-xs text-muted-foreground">Create a business account to add team members later</p>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="password">Password</Label>
-                  <Input
-                    id="password"
-                    type="password"
-                    placeholder="At least 6 characters"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                    data-testid="input-password"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="confirmPassword">Confirm Password</Label>
-                  <Input
-                    id="confirmPassword"
-                    type="password"
-                    placeholder="Confirm your password"
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    required
-                    data-testid="input-confirm-password"
-                  />
-                </div>
-                <Button type="submit" className="w-full" disabled={isLoading} data-testid="button-register">
-                  {isLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
-                  Create Account
-                </Button>
-                <div className="text-center text-sm text-muted-foreground">
-                  Already have an account?{" "}
-                  <button
-                    type="button"
-                    className="text-primary hover:underline font-medium"
-                    onClick={() => setMode("login")}
-                    data-testid="link-login"
-                  >
-                    Sign in
-                  </button>
-                </div>
-              </form>
-            )}
-            
             <div className="mt-6 text-center text-xs text-muted-foreground">
               By signing in, you agree to our Terms of Service and Privacy Policy.
             </div>
