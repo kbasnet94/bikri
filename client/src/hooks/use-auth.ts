@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
+import type { Role } from "@/lib/roles";
 
 export interface AuthUser {
   id: string;
@@ -7,7 +8,9 @@ export interface AuthUser {
   businessId?: string;
   businessName?: string;
   panVatNumber?: string;
-  role?: string;
+  role?: string;        // legacy, keep
+  roles: Role[];        // NEW
+  fullName?: string;    // NEW
   currency?: string;
 }
 
@@ -52,6 +55,9 @@ async function fetchUser(): Promise<AuthUser | null> {
       .from('business_users')
       .select(`
         role,
+        roles,
+        full_name,
+        active,
         business:businesses (
           id,
           name,
@@ -68,6 +74,7 @@ async function fetchUser(): Promise<AuthUser | null> {
       return {
         id: user.id,
         email: user.email!,
+        roles: [],
       };
     }
 
@@ -76,7 +83,14 @@ async function fetchUser(): Promise<AuthUser | null> {
       return {
         id: user.id,
         email: user.email!,
+        roles: [],
       };
+    }
+
+    if (businessUser.active === false) {
+      console.log('[Auth] User deactivated, signing out');
+      await supabase.auth.signOut();
+      return null;
     }
 
     const business = businessUser.business as any;
@@ -91,6 +105,8 @@ async function fetchUser(): Promise<AuthUser | null> {
       panVatNumber: business?.pan_vat_number || undefined,
       currency: business?.currency || 'USD',
       role: businessUser.role,
+      roles: (businessUser.roles ?? []) as Role[],
+      fullName: businessUser.full_name ?? undefined,
     };
   } catch (error) {
     console.error('[Auth] Exception in fetchUser:', error);
