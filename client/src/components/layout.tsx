@@ -1,5 +1,6 @@
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
+import { canAccess, NAV_RESOURCES } from "@/lib/roles";
 import { Button } from "@/components/ui/button";
 import {
   LayoutDashboard,
@@ -29,6 +30,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     { href: "/account", label: "Account", icon: Building2 },
   ];
 
+  const roles = user?.roles ?? [];
+  const visibleItems = navItems.filter((i) => canAccess(roles, NAV_RESOURCES[i.href]));
+
   const NavContent = () => (
     <>
       <div className="flex items-center gap-3 px-6 py-8">
@@ -36,7 +40,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       </div>
 
       <nav className="flex-1 px-4 space-y-1">
-        {navItems.map((item) => {
+        {visibleItems.map((item) => {
           const isActive = location === item.href;
           return (
             <Link key={item.href} href={item.href}>

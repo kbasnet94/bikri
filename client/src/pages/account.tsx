@@ -1,15 +1,19 @@
 import { useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
+import { canAccess, type Role } from "@/lib/roles";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
-import { Building2, Users, UserPlus, Trash2, Shield, Loader2, Coins, Calendar, Tags, Plus, X } from "lucide-react";
+import { Building2, Users, UserPlus, Shield, Loader2, Coins, Calendar, Tags, Plus, X, Dices, PencilLine } from "lucide-react";
 import { useCustomerTypes, useCreateCustomerType, useDeleteCustomerType } from "@/hooks/use-customer-types";
 import {
   getCurrentFiscalYear,
@@ -32,24 +36,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
+
+const ALL_ROLES: Role[] = ["admin", "operations", "sales", "accounts"];
 
 interface BusinessUser {
-  id: string;
+  id: string; // user_id
   email: string;
-  firstName: string | null;
-  lastName: string | null;
-  role: string | null;
+  fullName: string | null;
+  roles: Role[];
+  active: boolean;
   createdAt: string;
 }
 
@@ -62,8 +57,9 @@ export default function Account() {
   const [panVatNumber, setPanVatNumber] = useState("");
   const [currency, setCurrency] = useState("");
   const [newUserEmail, setNewUserEmail] = useState("");
-  const [newUserFirstName, setNewUserFirstName] = useState("");
-  const [newUserLastName, setNewUserLastName] = useState("");
+  const [newUserFullName, setNewUserFullName] = useState("");
+  const [newUserPassword, setNewUserPassword] = useState("");
+  const [newUserRoles, setNewUserRoles] = useState<Role[]>([]);
 
   // Common currencies for wholesale business
   const currencies = [
@@ -86,14 +82,14 @@ export default function Account() {
     queryKey: ['business_users', user?.businessId, user?.id],
     queryFn: async () => {
       if (!user?.businessId) return [];
-      
+
       const { data, error } = await supabase
         .from('business_users')
-        .select('id, user_id, role, created_at')
+        .select('user_id, roles, full_name, active, created_at')
         .eq('business_id', user.businessId);
-      
+
       if (error) throw error;
-      
+
       // Map users and show current user's email correctly
       return data?.map(bu => {
         // If this is the current user, show their actual email
@@ -101,21 +97,21 @@ export default function Account() {
           return {
             id: bu.user_id,
             email: user.email || 'Unknown',
-            firstName: null,
-            lastName: null,
-            role: bu.role,
+            fullName: bu.full_name ?? user.fullName ?? null,
+            roles: (bu.roles ?? []) as Role[],
+            active: bu.active ?? true,
             createdAt: bu.created_at,
           };
         }
-        
+
         // For other users, show a truncated ID (since we can't access their email from client)
         const truncatedId = bu.user_id.substring(0, 8) + '...';
         return {
           id: bu.user_id,
           email: truncatedId,
-          firstName: null,
-          lastName: null,
-          role: bu.role,
+          fullName: bu.full_name ?? null,
+          roles: (bu.roles ?? []) as Role[],
+          active: bu.active ?? true,
           createdAt: bu.created_at,
         };
       }) || [];
@@ -145,22 +141,16 @@ export default function Account() {
     },
   });
 
-  const addUserMutation = useMutation({
-    mutationFn: async (data: { email: string; firstName?: string; lastName?: string }) => {
+  const createTeamMemberMutation = useMutation({
+    mutationFn: async (data: { email: string; password: string; fullName: string; roles: Role[] }) => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) throw new Error('Not authenticated');
 
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-      console.log('[Invite] Calling Edge Function...', {
-        url: `${supabaseUrl}/functions/v1/invite-team-member`,
-        email: data.email,
-        businessId: user?.businessId,
-      });
-
       const res = await fetch(
-        `${supabaseUrl}/functions/v1/invite-team-member`,
+        `${supabaseUrl}/functions/v1/create-team-member`,
         {
           method: 'POST',
           headers: {
@@ -170,14 +160,15 @@ export default function Account() {
           },
           body: JSON.stringify({
             email: data.email,
+            password: data.password,
+            fullName: data.fullName,
             businessId: user?.businessId,
-            role: 'member',
+            roles: data.roles,
           }),
         }
       );
 
       const responseText = await res.text();
-      console.log('[Invite] Response:', res.status, responseText);
 
       if (!res.ok) {
         let errorMessage = `HTTP ${res.status}`;
@@ -192,61 +183,62 @@ export default function Account() {
 
       return JSON.parse(responseText);
     },
-    onSuccess: (data) => {
+    onSuccess: () => {
       toast({
-        title: "Invitation sent",
-        description: data.message || "The user will receive an email to join your business.",
+        title: "Team member created",
+        description: "Share their email and temporary password with them.",
       });
       queryClient.invalidateQueries({ queryKey: ['business_users'] });
       setIsAddUserOpen(false);
       setNewUserEmail("");
-      setNewUserFirstName("");
-      setNewUserLastName("");
+      setNewUserFullName("");
+      setNewUserPassword("");
+      setNewUserRoles([]);
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to invite user", description: error.message, variant: "destructive" });
+      toast({ title: "Failed to create user", description: error.message, variant: "destructive" });
     },
   });
 
-  const updateRoleMutation = useMutation({
-    mutationFn: async ({ userId, role }: { userId: string; role: string }) => {
+  const updateActiveMutation = useMutation({
+    mutationFn: async ({ userId, active }: { userId: string; active: boolean }) => {
       if (!user?.businessId) throw new Error('No business ID');
-      
+
       const { error } = await supabase
         .from('business_users')
-        .update({ role })
+        .update({ active })
         .eq('business_id', user.businessId)
         .eq('user_id', userId);
-      
+
       if (error) throw error;
     },
-    onSuccess: () => {
-      toast({ title: "Role updated" });
+    onSuccess: (_data, variables) => {
+      toast({ title: variables.active ? "User activated" : "User deactivated" });
       queryClient.invalidateQueries({ queryKey: ['business_users'] });
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to update role", description: error.message, variant: "destructive" });
+      toast({ title: "Failed to update status", description: error.message, variant: "destructive" });
     },
   });
 
-  const removeUserMutation = useMutation({
-    mutationFn: async (userId: string) => {
+  const updateRolesMutation = useMutation({
+    mutationFn: async ({ userId, roles }: { userId: string; roles: Role[] }) => {
       if (!user?.businessId) throw new Error('No business ID');
-      
+
       const { error } = await supabase
         .from('business_users')
-        .delete()
+        .update({ roles })
         .eq('business_id', user.businessId)
         .eq('user_id', userId);
-      
+
       if (error) throw error;
     },
     onSuccess: () => {
-      toast({ title: "User removed from business" });
+      toast({ title: "Roles updated" });
       queryClient.invalidateQueries({ queryKey: ['business_users'] });
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to remove user", description: error.message, variant: "destructive" });
+      toast({ title: "Failed to update roles", description: error.message, variant: "destructive" });
     },
   });
 
@@ -264,18 +256,30 @@ export default function Account() {
     updateBusinessMutation.mutate({ currency: newCurrency });
   };
 
+  const handleGeneratePassword = () => {
+    const charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    const randomValues = crypto.getRandomValues(new Uint32Array(12));
+    const password = Array.from(randomValues, (v) => charset[v % charset.length]).join("");
+    setNewUserPassword(password);
+  };
+
   const handleAddUser = () => {
-    if (!newUserEmail.trim()) return;
-    addUserMutation.mutate({
+    if (!newUserEmail.trim() || !newUserPassword.trim() || newUserRoles.length === 0) return;
+    createTeamMemberMutation.mutate({
       email: newUserEmail.trim(),
-      firstName: newUserFirstName.trim() || undefined,
-      lastName: newUserLastName.trim() || undefined,
+      password: newUserPassword,
+      fullName: newUserFullName.trim(),
+      roles: newUserRoles,
     });
   };
 
+  const toggleNewUserRole = (role: Role, checked: boolean) => {
+    setNewUserRoles((prev) => (checked ? [...prev, role] : prev.filter((r) => r !== role)));
+  };
+
   const isOwner = user?.role === "owner";
-  const isAdmin = user?.role === "admin";
-  const canManageUsers = isOwner || isAdmin;
+  const isAdmin = (user?.roles ?? []).includes("admin");
+  const canManageUsers = canAccess(user?.roles ?? [], "users");
 
   if (!user?.businessId) {
     return (
@@ -457,17 +461,17 @@ export default function Account() {
         <CustomerTypesCard />
       </div>
 
-      <div className="grid gap-6">
-        <Card className="shadow-sm">
-          <CardHeader className="flex flex-row items-center justify-between gap-2">
-            <div>
-              <CardTitle className="flex items-center gap-2">
-                <Users className="h-5 w-5" />
-                Team Members
-              </CardTitle>
-              <CardDescription>People with access to this business</CardDescription>
-            </div>
-            {canManageUsers && (
+      {canManageUsers && (
+        <div className="grid gap-6">
+          <Card className="shadow-sm">
+            <CardHeader className="flex flex-row items-center justify-between gap-2">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <Users className="h-5 w-5" />
+                  Team Members
+                </CardTitle>
+                <CardDescription>People with access to this business</CardDescription>
+              </div>
               <Dialog open={isAddUserOpen} onOpenChange={setIsAddUserOpen}>
                 <DialogTrigger asChild>
                   <Button size="sm" data-testid="button-add-user">
@@ -481,6 +485,16 @@ export default function Account() {
                   </DialogHeader>
                   <div className="space-y-4 py-4">
                     <div className="space-y-2">
+                      <Label htmlFor="fullName">Full Name</Label>
+                      <Input
+                        id="fullName"
+                        data-testid="input-new-user-fullname"
+                        placeholder="Jane Doe"
+                        value={newUserFullName}
+                        onChange={(e) => setNewUserFullName(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
                       <Label htmlFor="email">Email Address</Label>
                       <Input
                         id="email"
@@ -491,30 +505,47 @@ export default function Account() {
                         onChange={(e) => setNewUserEmail(e.target.value)}
                       />
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="firstName">First Name (optional)</Label>
+                    <div className="space-y-2">
+                      <Label htmlFor="tempPassword">Temporary Password</Label>
+                      <div className="flex gap-2">
                         <Input
-                          id="firstName"
-                          data-testid="input-new-user-firstname"
-                          placeholder="John"
-                          value={newUserFirstName}
-                          onChange={(e) => setNewUserFirstName(e.target.value)}
+                          id="tempPassword"
+                          data-testid="input-new-user-password"
+                          placeholder="At least 8 characters"
+                          value={newUserPassword}
+                          onChange={(e) => setNewUserPassword(e.target.value)}
                         />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="lastName">Last Name (optional)</Label>
-                        <Input
-                          id="lastName"
-                          data-testid="input-new-user-lastname"
-                          placeholder="Doe"
-                          value={newUserLastName}
-                          onChange={(e) => setNewUserLastName(e.target.value)}
-                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={handleGeneratePassword}
+                          data-testid="button-generate-password"
+                        >
+                          <Dices className="h-4 w-4 mr-2" />
+                          Generate
+                        </Button>
                       </div>
                     </div>
+                    <div className="space-y-2">
+                      <Label>Roles</Label>
+                      <div className="grid grid-cols-2 gap-2">
+                        {ALL_ROLES.map((role) => (
+                          <label key={role} className="flex items-center gap-2 text-sm">
+                            <Checkbox
+                              checked={newUserRoles.includes(role)}
+                              onCheckedChange={(checked) => toggleNewUserRole(role, checked === true)}
+                              data-testid={`checkbox-new-user-role-${role}`}
+                            />
+                            {role.charAt(0).toUpperCase() + role.slice(1)}
+                          </label>
+                        ))}
+                      </div>
+                      {newUserRoles.length === 0 && (
+                        <p className="text-xs text-muted-foreground">Select at least one role.</p>
+                      )}
+                    </div>
                     <p className="text-sm text-muted-foreground">
-                      The user will need to set their password using the "Set Password" option on the login page.
+                      Share the email and temporary password with the new team member directly.
                     </p>
                   </div>
                   <DialogFooter>
@@ -522,114 +553,132 @@ export default function Account() {
                     <Button
                       data-testid="button-confirm-add-user"
                       onClick={handleAddUser}
-                      disabled={!newUserEmail.trim() || addUserMutation.isPending}
+                      disabled={
+                        !newUserEmail.trim() ||
+                        newUserPassword.trim().length < 8 ||
+                        newUserRoles.length === 0 ||
+                        createTeamMemberMutation.isPending
+                      }
                     >
-                      {addUserMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Add User"}
+                      {createTeamMemberMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Create User"}
                     </Button>
                   </DialogFooter>
                 </DialogContent>
               </Dialog>
-            )}
-          </CardHeader>
-          <CardContent>
-            {loadingUsers ? (
-              <div className="space-y-3">
-                {[1, 2, 3].map((i) => (
-                  <div key={i} className="flex items-center justify-between">
-                    <div className="space-y-2">
-                      <Skeleton className="h-4 w-32" />
-                      <Skeleton className="h-3 w-48" />
+            </CardHeader>
+            <CardContent>
+              {loadingUsers ? (
+                <div className="space-y-3">
+                  {[1, 2, 3].map((i) => (
+                    <div key={i} className="flex items-center justify-between">
+                      <div className="space-y-2">
+                        <Skeleton className="h-4 w-32" />
+                        <Skeleton className="h-3 w-48" />
+                      </div>
+                      <Skeleton className="h-6 w-16" />
                     </div>
-                    <Skeleton className="h-6 w-16" />
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {businessUsers?.map((member) => (
-                  <div
-                    key={member.id}
-                    className="flex items-center justify-between p-3 rounded-lg border bg-card"
-                    data-testid={`user-row-${member.id}`}
-                  >
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium truncate" data-testid={`text-user-name-${member.id}`}>
-                        {member.id === user?.id ? (
-                          <>
-                            {member.email} <span className="text-xs text-muted-foreground">(You)</span>
-                          </>
-                        ) : member.email.includes('...') ? (
-                          <>Team Member <span className="text-xs text-muted-foreground">({member.email})</span></>
-                        ) : (
-                          member.email
+                  ))}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {businessUsers?.map((member) => (
+                    <div
+                      key={member.id}
+                      className="flex items-center justify-between p-3 rounded-lg border bg-card"
+                      data-testid={`user-row-${member.id}`}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium truncate" data-testid={`text-user-name-${member.id}`}>
+                          {member.fullName || member.email}
+                          {member.id === user?.id && (
+                            <span className="text-xs text-muted-foreground"> (You)</span>
+                          )}
+                        </p>
+                        <p className="text-sm text-muted-foreground truncate" data-testid={`text-user-email-${member.id}`}>
+                          {member.email.includes('...') ? `Member ${member.email}` : member.email}
+                        </p>
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {member.roles.length > 0 ? (
+                            member.roles.map((role) => (
+                              <Badge key={role} variant="secondary" className="text-xs">
+                                {role.charAt(0).toUpperCase() + role.slice(1)}
+                              </Badge>
+                            ))
+                          ) : (
+                            <Badge variant="outline" className="text-xs">No roles</Badge>
+                          )}
+                          {!member.active && (
+                            <Badge variant="destructive" className="text-xs">Inactive</Badge>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-3">
+                        {member.id !== user?.id && (
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <Button variant="ghost" size="icon" data-testid={`button-edit-roles-${member.id}`}>
+                                <PencilLine className="h-4 w-4" />
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-56 space-y-3">
+                              <p className="text-sm font-medium">Edit roles</p>
+                              <div className="grid grid-cols-1 gap-2">
+                                {ALL_ROLES.map((role) => {
+                                  const checked = member.roles.includes(role);
+                                  return (
+                                    <label key={role} className="flex items-center gap-2 text-sm">
+                                      <Checkbox
+                                        checked={checked}
+                                        onCheckedChange={(next) => {
+                                          if (role === "admin" && next !== true) {
+                                            const activeAdminCount = (businessUsers ?? []).filter(
+                                              (m) => m.active && m.roles.includes("admin")
+                                            ).length;
+                                            if (activeAdminCount <= 1 && member.active) {
+                                              toast({ title: "At least one admin required", variant: "destructive" });
+                                              return;
+                                            }
+                                          }
+                                          const nextRoles = next === true
+                                            ? [...member.roles, role]
+                                            : member.roles.filter((r) => r !== role);
+                                          updateRolesMutation.mutate({ userId: member.id, roles: nextRoles });
+                                        }}
+                                        data-testid={`checkbox-edit-role-${member.id}-${role}`}
+                                      />
+                                      {role.charAt(0).toUpperCase() + role.slice(1)}
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            </PopoverContent>
+                          </Popover>
                         )}
-                      </p>
-                      <p className="text-sm text-muted-foreground truncate" data-testid={`text-user-email-${member.id}`}>
-                        {member.role ? `Role: ${member.role.charAt(0).toUpperCase()}${member.role.slice(1)}` : 'Member'}
-                      </p>
+
+                        {isAdmin && member.id !== user?.id && (
+                          <div className="flex items-center gap-2">
+                            <Switch
+                              checked={member.active}
+                              onCheckedChange={(active) => updateActiveMutation.mutate({ userId: member.id, active })}
+                              data-testid={`switch-active-${member.id}`}
+                            />
+                            <span className="text-xs text-muted-foreground">{member.active ? "Active" : "Inactive"}</span>
+                          </div>
+                        )}
+                      </div>
                     </div>
+                  ))}
 
-                    <div className="flex items-center gap-2">
-                      {isOwner && member.id !== user?.id ? (
-                        <Select
-                          value={member.role || "member"}
-                          onValueChange={(role) => updateRoleMutation.mutate({ userId: member.id, role })}
-                        >
-                          <SelectTrigger className="w-24" data-testid={`select-role-${member.id}`}>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="owner">Owner</SelectItem>
-                            <SelectItem value="admin">Admin</SelectItem>
-                            <SelectItem value="member">Member</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      ) : (
-                        <Badge variant={member.role === "owner" ? "default" : "secondary"}>
-                          {member.role?.charAt(0).toUpperCase()}{member.role?.slice(1)}
-                        </Badge>
-                      )}
-
-                      {canManageUsers && member.id !== user?.id && member.role !== "owner" && (
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button variant="ghost" size="icon" className="text-destructive" data-testid={`button-remove-user-${member.id}`}>
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>Remove Team Member</AlertDialogTitle>
-                              <AlertDialogDescription>
-                                Are you sure you want to remove {member.email} from this business? 
-                                They will lose access to all business data.
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>Cancel</AlertDialogCancel>
-                              <AlertDialogAction
-                                onClick={() => removeUserMutation.mutate(member.id)}
-                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                                data-testid="button-confirm-remove-user"
-                              >
-                                Remove
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
-                      )}
-                    </div>
-                  </div>
-                ))}
-
-                {businessUsers?.length === 0 && (
-                  <p className="text-muted-foreground text-center py-8">No team members yet</p>
-                )}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+                  {businessUsers?.length === 0 && (
+                    <p className="text-muted-foreground text-center py-8">No team members yet</p>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }
