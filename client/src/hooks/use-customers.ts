@@ -15,6 +15,7 @@ export interface Customer {
   current_balance: number;
   customer_type_id: number | null;
   customer_type?: { id: number; name: string } | null;
+  default_discount_pct?: number | string | null;
   created_at: string;
 }
 
@@ -317,6 +318,7 @@ export function useCreateCustomer() {
       panVatNumber?: string;
       creditLimit?: number;
       customerTypeId?: number | null;
+      defaultDiscountPct?: number | null;
     }) => {
       if (!user?.businessId) throw new Error('No business selected');
 
@@ -332,6 +334,7 @@ export function useCreateCustomer() {
           current_balance: 0,
           business_id: user.businessId,
           customer_type_id: customer.customerTypeId || null,
+          default_discount_pct: customer.defaultDiscountPct ?? null,
         })
         .select()
         .single();
@@ -353,6 +356,24 @@ export function useUpdateCustomerType() {
       const { error } = await supabase
         .from('customers')
         .update({ customer_type_id: customerTypeId })
+        .eq('id', customerId);
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+    },
+  });
+}
+
+export function useUpdateCustomerDiscount() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ customerId, pct }: { customerId: number; pct: number | null }) => {
+      const { error } = await supabase
+        .from('customers')
+        .update({ default_discount_pct: pct })
         .eq('id', customerId);
 
       if (error) throw error;

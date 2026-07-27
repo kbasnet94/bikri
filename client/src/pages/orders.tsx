@@ -9,6 +9,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useCustomerTypes } from "@/hooks/use-customer-types";
 import { useCategories } from "@/hooks/use-categories";
 import { supabase } from "@/lib/supabase";
+import { usualDiscountLabel } from "@/lib/usual-discount";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -1155,15 +1156,17 @@ function ProductRow({
   isInCart, 
   cartQuantity, 
   cartDiscountPercent,
-  formatCurrency, 
-  onAdd, 
-  onRemove 
-}: { 
-  product: any; 
+  usualDiscountPct,
+  formatCurrency,
+  onAdd,
+  onRemove
+}: {
+  product: any;
   variant?: any;
   isInCart: boolean;
   cartQuantity: number;
   cartDiscountPercent: number;
+  usualDiscountPct?: number | string | null;
   formatCurrency: (cents: number) => string;
   onAdd: (quantity: number, discountPercent: number) => void;
   onRemove: () => void;
@@ -1244,9 +1247,22 @@ function ProductRow({
                 placeholder="0"
                 data-testid={`input-discount-${rowKey}`}
               />
+              {usualDiscountLabel(usualDiscountPct) && (
+                <button
+                  type="button"
+                  className="text-xs text-muted-foreground underline decoration-dotted hover:text-foreground mt-1"
+                  title="Click to use this discount"
+                  onClick={() => setDiscountPercent(
+                    typeof usualDiscountPct === 'string' ? parseFloat(usualDiscountPct) : (usualDiscountPct as number)
+                  )}
+                  data-testid={`usual-discount-hint-${rowKey}`}
+                >
+                  {usualDiscountLabel(usualDiscountPct)}
+                </button>
+              )}
             </div>
           </div>
-          
+
           <div className="text-right min-w-[80px]">
             <div className="font-mono font-medium text-sm">{formatCurrency(lineTotal)}</div>
             {numDisc > 0 && (
@@ -1728,6 +1744,7 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
                           isInCart={!!cartItem}
                           cartQuantity={cartItem?.quantity || 1}
                           cartDiscountPercent={cartItem?.discountPercent || 0}
+                          usualDiscountPct={selectedCustomer?.default_discount_pct ?? null}
                           formatCurrency={formatCurrency}
                           onAdd={(qty, discountPercent) => addToCart(row.product, qty, discountPercent, row.variant)}
                           onRemove={() => removeFromCart(row.product.id, row.variant.id)}
@@ -1742,6 +1759,7 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
                           isInCart={!!cartItem}
                           cartQuantity={cartItem?.quantity || 1}
                           cartDiscountPercent={cartItem?.discountPercent || 0}
+                          usualDiscountPct={selectedCustomer?.default_discount_pct ?? null}
                           formatCurrency={formatCurrency}
                           onAdd={(qty, discountPercent) => addToCart(row.product, qty, discountPercent)}
                           onRemove={() => removeFromCart(row.product.id)}
@@ -1815,6 +1833,23 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
                             max={100}
                             step={1}
                           />
+                          {usualDiscountLabel(selectedCustomer?.default_discount_pct) && (
+                            <button
+                              type="button"
+                              className="text-xs text-muted-foreground underline decoration-dotted hover:text-foreground mt-1"
+                              title="Click to use this discount"
+                              onClick={() => updateDiscountPercent(
+                                item.productId,
+                                typeof selectedCustomer?.default_discount_pct === 'string'
+                                  ? parseFloat(selectedCustomer.default_discount_pct)
+                                  : (selectedCustomer?.default_discount_pct as number),
+                                item.variantId
+                              )}
+                              data-testid={`usual-discount-hint-review-${cartKey}`}
+                            >
+                              {usualDiscountLabel(selectedCustomer?.default_discount_pct)}
+                            </button>
+                          )}
                         </div>
                         <div className="font-mono font-medium w-20 text-right">
                           {formatCurrency(lineTotal)}

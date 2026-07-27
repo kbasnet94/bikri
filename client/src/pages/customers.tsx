@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from "react";
-import { useCustomersWithAging, useAgingTotals, useCustomer, useCreateCustomer, useCreateLedgerEntry, useCustomerLedger, useUpdateCustomerType, useBulkUpdateCustomerType } from "@/hooks/use-customers";
+import { useCustomersWithAging, useAgingTotals, useCustomer, useCreateCustomer, useCreateLedgerEntry, useCustomerLedger, useUpdateCustomerType, useBulkUpdateCustomerType, useUpdateCustomerDiscount } from "@/hooks/use-customers";
+import { usualDiscountLabel } from "@/lib/usual-discount";
 import { useCurrency } from "@/hooks/use-currency";
 import { useAuth } from "@/hooks/use-auth";
 import { canAccess } from "@/lib/roles";
@@ -428,6 +429,9 @@ function CreateCustomerDialog({ open, onOpenChange }: any) {
   const { data: customerTypes } = useCustomerTypes();
   const [selectedTypeId, setSelectedTypeId] = useState<string>("");
   const [typeError, setTypeError] = useState(false);
+  const [usualDiscount, setUsualDiscount] = useState<string>("");
+  const { user } = useAuth();
+  const canEditLedger = canAccess(user?.roles ?? [], "ledger-edit");
 
   const customerFormSchema = insertCustomerSchema.extend({
     phone: z.string().optional().refine(
@@ -455,16 +459,23 @@ function CreateCustomerDialog({ open, onOpenChange }: any) {
     }
     try {
       const creditLimitInCents = Math.round(values.creditLimit * 100);
+      const defaultDiscountPct = usualDiscount === '' || usualDiscount == null ? null : parseFloat(usualDiscount);
+      if (defaultDiscountPct != null && (isNaN(defaultDiscountPct) || defaultDiscountPct < 0 || defaultDiscountPct >= 100)) {
+        toast({ title: "Discount must be between 0 and 99.99", variant: "destructive" });
+        return;
+      }
       await createCustomer.mutateAsync({
         ...values,
         creditLimit: creditLimitInCents,
         customerTypeId: selectedTypeId && selectedTypeId !== 'none' ? parseInt(selectedTypeId) : null,
+        defaultDiscountPct,
       });
       toast({ title: "Customer created successfully" });
       onOpenChange(false);
       form.reset();
       setSelectedTypeId("");
       setTypeError(false);
+      setUsualDiscount("");
     } catch (error: any) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     }
@@ -578,17 +589,35 @@ function CreateCustomerDialog({ open, onOpenChange }: any) {
                 </FormItem>
               )}
             />
-            <FormField
-              control={form.control}
-              name="creditLimit"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Credit Limit ({symbol})</FormLabel>
-                  <FormControl><Input type="number" step="0.01" min="0" placeholder="0.00" {...field} onChange={e => field.onChange(parseFloat(e.target.value) || 0)} /></FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            <div className="grid grid-cols-2 gap-4">
+              <FormField
+                control={form.control}
+                name="creditLimit"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Credit Limit ({symbol})</FormLabel>
+                    <FormControl><Input type="number" step="0.01" min="0" placeholder="0.00" {...field} onChange={e => field.onChange(parseFloat(e.target.value) || 0)} /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormItem>
+                <FormLabel>Usual Discount % (optional)</FormLabel>
+                <FormControl>
+                  <Input
+                    type="number"
+                    step="0.5"
+                    min="0"
+                    max="99.99"
+                    placeholder="e.g. 5"
+                    value={usualDiscount}
+                    onChange={(e) => setUsualDiscount(e.target.value)}
+                    data-testid="input-usual-discount"
+                    disabled={!canEditLedger}
+                  />
+                </FormControl>
+              </FormItem>
+            </div>
             <Button type="submit" className="w-full" disabled={createCustomer.isPending}>
               {createCustomer.isPending ? "Creating..." : "Create Customer"}
             </Button>
@@ -607,6 +636,7 @@ function CustomerDetailsDialog({ customer: customerProp, open, onOpenChange }: a
   const { toast } = useToast();
   const { data: customerTypes } = useCustomerTypes();
   const updateCustomerType = useUpdateCustomerType();
+  const updateCustomerDiscount = useUpdateCustomerDiscount();
 
   const handleSetType = async (typeId: number) => {
     try {
@@ -622,6 +652,27 @@ function CustomerDetailsDialog({ customer: customerProp, open, onOpenChange }: a
   const { user } = useAuth();
   const canEditLedger = canAccess(user?.roles ?? [], "ledger-edit");
   const ledgerEndRef = useRef<HTMLDivElement>(null);
+
+  const [discountInput, setDiscountInput] = useState<string>(
+    customer.default_discount_pct == null ? "" : String(customer.default_discount_pct)
+  );
+  useEffect(() => {
+    setDiscountInput(customer.default_discount_pct == null ? "" : String(customer.default_discount_pct));
+  }, [customer.default_discount_pct]);
+
+  const handleSaveDiscount = async () => {
+    const pct = discountInput === '' ? null : parseFloat(discountInput);
+    if (pct != null && (isNaN(pct) || pct < 0 || pct >= 100)) {
+      toast({ title: "Discount must be between 0 and 99.99", variant: "destructive" });
+      return;
+    }
+    try {
+      await updateCustomerDiscount.mutateAsync({ customerId: customer.id, pct });
+      toast({ title: "Usual discount updated" });
+    } catch (error: any) {
+      toast({ title: "Failed to update discount", description: error.message, variant: "destructive" });
+    }
+  };
 
   // Build fiscal year list from actual ledger entry dates (only years with data + current)
   // Parse date strings safely to local dates to avoid UTC timezone issues
@@ -1044,6 +1095,37 @@ function CustomerDetailsDialog({ customer: customerProp, open, onOpenChange }: a
                   <div className="flex items-center gap-2"><DollarSign className="w-4 h-4 text-muted-foreground" /> {customer.email || 'N/A'}</div>
                   <div className="flex items-center gap-2"><Calendar className="w-4 h-4 text-muted-foreground" /> {customer.phone || 'N/A'}</div>
                   <div className="flex items-center gap-2"><FileText className="w-4 h-4 text-muted-foreground" /> PAN/VAT: {customer.pan_vat_number || 'N/A'}</div>
+                  <div className="flex items-center gap-2">
+                    <DollarSign className="w-4 h-4 text-muted-foreground" />
+                    {canEditLedger ? (
+                      <div className="flex items-center gap-2">
+                        <span>Usual discount:</span>
+                        <Input
+                          type="number"
+                          step="0.5"
+                          min="0"
+                          max="99.99"
+                          className="w-20 h-7 text-xs"
+                          value={discountInput}
+                          onChange={(e) => setDiscountInput(e.target.value)}
+                          data-testid="input-detail-usual-discount"
+                        />
+                        <span className="text-xs text-muted-foreground">%</span>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7"
+                          onClick={handleSaveDiscount}
+                          disabled={updateCustomerDiscount.isPending}
+                          data-testid="button-save-usual-discount"
+                        >
+                          {updateCustomerDiscount.isPending ? "Saving..." : "Save"}
+                        </Button>
+                      </div>
+                    ) : (
+                      <span data-testid="text-usual-discount">{usualDiscountLabel(customer.default_discount_pct) ?? '—'}</span>
+                    )}
+                  </div>
                 </div>
               </div>
               <div>
