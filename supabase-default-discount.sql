@@ -14,7 +14,7 @@
 --                                 ORDER BY COUNT(*) DESC, MAX(o.created_at) DESC) AS rn
 --       FROM order_items oi
 --       JOIN orders o ON o.id = oi.order_id
---       WHERE o.status <> 'cancelled'
+--       WHERE o.status NOT IN ('cancelled','canceled')
 --         AND oi.unit_price > 0
 --         AND oi.discount > 0
 --         AND ROUND(oi.discount * 100.0 / oi.unit_price) < 100
@@ -23,7 +23,7 @@
 --   ) b ON b.customer_id = c.id
 --   WHERE c.customer_type_id IN (3,4,7)
 --      OR EXISTS (SELECT 1 FROM orders o2 WHERE o2.customer_id = c.id
---                 AND o2.payment_status = 'Credit' AND o2.status <> 'cancelled')
+--                 AND o2.payment_status = 'Credit' AND o2.status NOT IN ('cancelled','canceled'))
 --   ORDER BY c.name;
 
 ALTER TABLE customers
@@ -37,7 +37,7 @@ WITH modal AS (
                               ORDER BY COUNT(*) DESC, MAX(o.created_at) DESC) AS rn
     FROM order_items oi
     JOIN orders o ON o.id = oi.order_id
-    WHERE o.status <> 'cancelled'
+    WHERE o.status NOT IN ('cancelled','canceled')
       AND oi.unit_price > 0
       AND oi.discount > 0
       AND ROUND(oi.discount * 100.0 / oi.unit_price) < 100
@@ -51,4 +51,4 @@ WHERE m.customer_id = c.id
   AND c.default_discount_pct IS NULL
   AND (c.customer_type_id IN (3,4,7)
        OR EXISTS (SELECT 1 FROM orders o2 WHERE o2.customer_id = c.id
-                  AND o2.payment_status = 'Credit' AND o2.status <> 'cancelled'));
+                  AND o2.payment_status = 'Credit' AND o2.status NOT IN ('cancelled','canceled')));

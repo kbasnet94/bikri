@@ -430,6 +430,8 @@ function CreateCustomerDialog({ open, onOpenChange }: any) {
   const [selectedTypeId, setSelectedTypeId] = useState<string>("");
   const [typeError, setTypeError] = useState(false);
   const [usualDiscount, setUsualDiscount] = useState<string>("");
+  const { user } = useAuth();
+  const canEditLedger = canAccess(user?.roles ?? [], "ledger-edit");
 
   const customerFormSchema = insertCustomerSchema.extend({
     phone: z.string().optional().refine(
@@ -458,6 +460,10 @@ function CreateCustomerDialog({ open, onOpenChange }: any) {
     try {
       const creditLimitInCents = Math.round(values.creditLimit * 100);
       const defaultDiscountPct = usualDiscount === '' || usualDiscount == null ? null : parseFloat(usualDiscount);
+      if (defaultDiscountPct != null && (isNaN(defaultDiscountPct) || defaultDiscountPct < 0 || defaultDiscountPct >= 100)) {
+        toast({ title: "Discount must be between 0 and 99.99", variant: "destructive" });
+        return;
+      }
       await createCustomer.mutateAsync({
         ...values,
         creditLimit: creditLimitInCents,
@@ -607,6 +613,7 @@ function CreateCustomerDialog({ open, onOpenChange }: any) {
                     value={usualDiscount}
                     onChange={(e) => setUsualDiscount(e.target.value)}
                     data-testid="input-usual-discount"
+                    disabled={!canEditLedger}
                   />
                 </FormControl>
               </FormItem>
@@ -655,6 +662,10 @@ function CustomerDetailsDialog({ customer: customerProp, open, onOpenChange }: a
 
   const handleSaveDiscount = async () => {
     const pct = discountInput === '' ? null : parseFloat(discountInput);
+    if (pct != null && (isNaN(pct) || pct < 0 || pct >= 100)) {
+      toast({ title: "Discount must be between 0 and 99.99", variant: "destructive" });
+      return;
+    }
     try {
       await updateCustomerDiscount.mutateAsync({ customerId: customer.id, pct });
       toast({ title: "Usual discount updated" });
