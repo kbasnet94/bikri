@@ -1352,6 +1352,28 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
 
   const filteredCustomers = customers || [];
 
+  // Opening the new-customer form must never leave a previously selected
+  // customer armed underneath it — a filled form + stale selection could
+  // submit the order against the wrong customer.
+  const openNewCustomerForm = () => {
+    setCustomerId("");
+    setSelectedCustomer(null);
+    setShowNewCustomerForm(true);
+  };
+
+  // Zero-result search → jump straight to the new-customer form with the
+  // query pre-filled: digit-ish queries land in phone, everything else in name.
+  const createFromSearch = () => {
+    const q = customerSearch.trim();
+    const digits = q.replace(/[^0-9]/g, "");
+    if (q && /^[\d\s+()-]+$/.test(q)) {
+      setNewCustomerPhone(digits.slice(0, 10));
+    } else if (q) {
+      setNewCustomerName(q);
+    }
+    openNewCustomerForm();
+  };
+
   const handleCreateCustomer = async () => {
     if (!newCustomerName.trim()) {
       toast({ title: "Customer name is required", variant: "destructive" });
@@ -1536,7 +1558,7 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
                 <Button 
                   variant="outline" 
                   size="sm" 
-                  onClick={() => setShowNewCustomerForm(!showNewCustomerForm)}
+                  onClick={() => showNewCustomerForm ? setShowNewCustomerForm(false) : openNewCustomerForm()}
                   data-testid="button-add-new-customer"
                 >
                   <Plus className="w-4 h-4 mr-1" />
@@ -1631,50 +1653,66 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
                 </Card>
               )}
               
-              <div className="relative max-w-sm">
-                <Input
-                  placeholder="Search by name or phone..."
-                  value={customerSearch}
-                  onChange={(e) => setCustomerSearch(e.target.value)}
-                  className="pr-9"
-                  data-testid="input-customer-search"
-                />
-                {isSearchingCustomers && (
-                  <Loader2
-                    className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground"
-                    data-testid="customer-search-loading"
-                  />
-                )}
-              </div>
+              {!showNewCustomerForm && (
+                <>
+                  <div className="relative max-w-sm">
+                    <Input
+                      placeholder="Search by name or phone..."
+                      value={customerSearch}
+                      onChange={(e) => setCustomerSearch(e.target.value)}
+                      className="pr-9"
+                      data-testid="input-customer-search"
+                    />
+                    {isSearchingCustomers && (
+                      <Loader2
+                        className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground"
+                        data-testid="customer-search-loading"
+                      />
+                    )}
+                  </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[300px] overflow-y-auto">
-                {isSearchingCustomers && filteredCustomers.length === 0 ? (
-                  <div className="col-span-2 flex items-center justify-center gap-2 py-8 text-muted-foreground">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    <span>Searching customers...</span>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[300px] overflow-y-auto">
+                    {isSearchingCustomers && filteredCustomers.length === 0 ? (
+                      <div className="col-span-2 flex items-center justify-center gap-2 py-8 text-muted-foreground">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <span>Searching customers...</span>
+                      </div>
+                    ) : filteredCustomers.length === 0 ? (
+                      <div className="col-span-2 text-center py-8 text-muted-foreground space-y-3">
+                        <div>No customers found.</div>
+                        {customerSearch.trim() && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={createFromSearch}
+                            data-testid="button-create-from-search"
+                          >
+                            <Plus className="w-4 h-4 mr-1" />
+                            Create "{customerSearch.trim()}" as new customer
+                          </Button>
+                        )}
+                      </div>
+                    ) : (
+                      filteredCustomers.map(c => (
+                        <div
+                          key={c.id}
+                          className={cn(
+                            "p-4 rounded-xl border cursor-pointer transition-all hover:border-primary",
+                            customerId === c.id.toString() ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border"
+                          )}
+                          onClick={() => { setCustomerId(c.id.toString()); setSelectedCustomer(c); }}
+                          data-testid={`customer-card-${c.id}`}
+                        >
+                          <div className="font-medium">{c.name}</div>
+                          {c.phone && <div className="text-sm text-muted-foreground">{c.phone}</div>}
+                          {c.address && <div className="text-sm text-muted-foreground truncate" title={c.address}>{c.address}</div>}
+                          {c.email && <div className="text-sm text-muted-foreground">{c.email}</div>}
+                        </div>
+                      ))
+                    )}
                   </div>
-                ) : filteredCustomers.length === 0 ? (
-                  <div className="col-span-2 text-center py-8 text-muted-foreground">
-                    No customers found. Click "New Customer" to add one.
-                  </div>
-                ) : (
-                  filteredCustomers.map(c => (
-                    <div 
-                      key={c.id} 
-                      className={cn(
-                        "p-4 rounded-xl border cursor-pointer transition-all hover:border-primary",
-                        customerId === c.id.toString() ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border"
-                      )}
-                      onClick={() => { setCustomerId(c.id.toString()); setSelectedCustomer(c); }}
-                      data-testid={`customer-card-${c.id}`}
-                    >
-                      <div className="font-medium">{c.name}</div>
-                      {c.phone && <div className="text-sm text-muted-foreground">{c.phone}</div>}
-                      {c.email && <div className="text-sm text-muted-foreground">{c.email}</div>}
-                    </div>
-                  ))
-                )}
-              </div>
+                </>
+              )}
             </div>
           )}
 
