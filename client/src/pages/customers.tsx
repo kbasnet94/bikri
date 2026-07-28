@@ -48,6 +48,7 @@ import { Badge } from "@/components/ui/badge";
 import { api } from "@shared/routes";
 import Papa from "papaparse";
 import { ledgerBalanceDelta, isBalanceReducing } from '@/lib/ledger-math';
+import { CustomerLocationsSection } from "@/components/customer-locations";
 import { findUntypedRows } from "@/lib/csv-customer-types";
 
 export default function Customers() {
@@ -1128,9 +1129,12 @@ function CustomerDetailsDialog({ customer: customerProp, open, onOpenChange }: a
                   </div>
                 </div>
               </div>
-              <div>
-                <h4 className="font-medium text-muted-foreground mb-2">Address</h4>
-                <p>{customer.address || 'No address on file.'}</p>
+              <div className="space-y-6">
+                <div>
+                  <h4 className="font-medium text-muted-foreground mb-2">Address</h4>
+                  <p>{customer.address || 'No address on file.'}</p>
+                </div>
+                <CustomerLocationsSection customerId={customer.id} />
               </div>
             </div>
           </TabsContent>
