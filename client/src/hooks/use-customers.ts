@@ -50,11 +50,11 @@ export interface LedgerEntry {
   created_at: string;
 }
 
-export function useCustomers(search?: string) {
+export function useCustomers(search?: string, limit?: number) {
   const { user } = useAuth();
-  
+
   return useQuery({
-    queryKey: ['customers', user?.businessId, search],
+    queryKey: ['customers', user?.businessId, search, limit ?? null],
     queryFn: async () => {
       let query = supabase
         .from('customers')
@@ -65,11 +65,14 @@ export function useCustomers(search?: string) {
       }
 
       // Sort by balance descending (highest debt first), then by name
-      // Supabase defaults to 1000 rows max; raise the limit to handle large customer lists
+      // Supabase defaults to 1000 rows max; raise the limit to handle large customer lists.
+      // Callers rendering a pick-list should pass a small `limit` — downloading the
+      // whole table (2,400+ rows) just to show a handful of cards is what made the
+      // create-order dialog hang for many seconds on slow connections.
       const { data, error } = await query
         .order('current_balance', { ascending: false })
         .order('name', { ascending: true })
-        .limit(10000);
+        .limit(limit ?? 10000);
       
       if (error) throw error;
       return data as Customer[];

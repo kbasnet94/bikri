@@ -1326,7 +1326,9 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
 
   // Server-side search: avoids the PostgREST max-rows cap hiding customers
   // sorted to the bottom of the list (e.g. heavily-negative balances).
-  const { data: customers, isFetching: isFetchingCustomers } = useCustomers(debouncedCustomerSearch || undefined);
+  // Cap the pick-list: search is server-side across ALL customers, so the
+  // unsearched view only needs enough rows to browse, not the whole table.
+  const { data: customers, isFetching: isFetchingCustomers } = useCustomers(debouncedCustomerSearch || undefined, 50);
   const isSearchingCustomers = customerSearch !== debouncedCustomerSearch || isFetchingCustomers;
   const { data: products } = useProducts();
   const { data: customerTypes } = useCustomerTypes();
@@ -1671,7 +1673,7 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
                     )}
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[300px] overflow-y-auto">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 content-start">
                     {isSearchingCustomers && filteredCustomers.length === 0 ? (
                       <div className="col-span-2 flex items-center justify-center gap-2 py-8 text-muted-foreground">
                         <Loader2 className="h-4 w-4 animate-spin" />
