@@ -56,6 +56,10 @@ import { cn } from "@/lib/utils";
 import { openProFormaInvoice } from "@/lib/proforma-invoice";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { OrderLocationControl, CustomerLocationPicker, isD2CCustomer, ORDER_CHANNELS } from "@/components/customer-locations";
+import { useCustomerLocations } from "@/hooks/use-customer-locations";
+import { useLastOrderMeta } from "@/hooks/use-orders";
+import { MapPin } from "lucide-react";
 
 const ORDER_STATUSES = [
   { value: "new", label: "New" },
@@ -799,7 +803,7 @@ function OrderDetails({ order, formatCurrency }: { order: any; formatCurrency: (
       )}
       
       <div className="flex justify-between items-end pt-2 border-t">
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-4 flex-wrap">
           <button
             type="button"
             className="text-sm text-primary underline underline-offset-2 cursor-pointer"
@@ -816,6 +820,7 @@ function OrderDetails({ order, formatCurrency }: { order: any; formatCurrency: (
           >
             Pro Forma Invoice
           </button>
+          <OrderLocationControl order={order} />
         </div>
         <div className="text-right space-y-0.5">
           {order.delivery_fee > 0 && (
@@ -1309,6 +1314,7 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
   const [newCustomerPhone, setNewCustomerPhone] = useState("");
   const [newCustomerEmail, setNewCustomerEmail] = useState("");
   const [newCustomerAddress, setNewCustomerAddress] = useState("");
+  const [newCustomerBilling, setNewCustomerBilling] = useState("");
   const [newCustomerPanVat, setNewCustomerPanVat] = useState("");
   const [newCustomerTypeId, setNewCustomerTypeId] = useState<string>("");
   const [orderNote, setOrderNote] = useState("");
@@ -1318,6 +1324,35 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
   const [vatBillNumber, setVatBillNumber] = useState("");
   const [deliveryFee, setDeliveryFee] = useState(0);
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
+  // Location pointer: which of the customer's locations this order goes to.
+  // D2C orders also carry a sales channel.
+  const [orderLocation, setOrderLocation] = useState<any | null>(null);
+  const [orderChannel, setOrderChannel] = useState<string>("");
+  const { data: dialogCustomerLocations } = useCustomerLocations(customerId ? parseInt(customerId) : undefined);
+  const { data: lastOrderMeta } = useLastOrderMeta(customerId ? parseInt(customerId) : undefined);
+  // Changing customer invalidates any previously chosen location/channel.
+  useEffect(() => {
+    setOrderLocation(null);
+    setOrderChannel("");
+  }, [customerId]);
+  // Pre-fill for repeat customers: last order's location + channel win;
+  // else a lone location, else a lone B2B drop-off. Always editable.
+  useEffect(() => {
+    if (!orderLocation) {
+      if (lastOrderMeta?.location) {
+        setOrderLocation(lastOrderMeta.location);
+      } else if ((dialogCustomerLocations?.length ?? 0) === 1) {
+        setOrderLocation(dialogCustomerLocations![0]);
+      } else {
+        const dropoffs = (dialogCustomerLocations || []).filter(l => l.kind === 'dropoff');
+        if (dropoffs.length === 1) setOrderLocation(dropoffs[0]);
+      }
+    }
+    if (!orderChannel && lastOrderMeta?.channel) {
+      setOrderChannel(lastOrderMeta.channel);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dialogCustomerLocations, lastOrderMeta]);
   
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedCustomerSearch(customerSearch), 300);
@@ -1395,6 +1430,7 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
         phone: newCustomerPhone.trim() || null,
         email: newCustomerEmail.trim() || null,
         address: newCustomerAddress.trim() || null,
+        billingAddress: newCustomerBilling.trim() || null,
         panVatNumber: newCustomerPanVat.trim() || null,
         customerTypeId: newCustomerTypeId && newCustomerTypeId !== 'none' ? parseInt(newCustomerTypeId) : null,
       });
@@ -1405,6 +1441,7 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
       setNewCustomerPhone("");
       setNewCustomerEmail("");
       setNewCustomerAddress("");
+      setNewCustomerBilling("");
       setNewCustomerPanVat("");
       setNewCustomerTypeId("");
       toast({ title: "Customer created successfully!" });
@@ -1506,6 +1543,8 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
         orderDate: orderDate,
         vatBillNumber: includeVat && vatBillNumber.trim() ? vatBillNumber.trim() : undefined,
         deliveryFee: deliveryFeeInCents > 0 ? deliveryFeeInCents : undefined,
+        locationId: orderLocation?.id,
+        channel: isD2CCustomer(selectedCustomer) && orderChannel ? orderChannel : undefined,
       });
       
       console.log('[CreateOrder] Order created successfully:', newOrder);
@@ -1529,7 +1568,9 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
       setIncludeVat(false);
       setVatBillNumber("");
       setDeliveryFee(0);
-      
+      setOrderLocation(null);
+      setOrderChannel("");
+
       // Close dialog
       onOpenChange(false);
     } catch (error: any) {
@@ -1614,6 +1655,16 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
                           value={newCustomerAddress}
                           onChange={(e) => setNewCustomerAddress(e.target.value)}
                           data-testid="input-new-customer-address"
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="new-customer-billing" className="text-xs">Billing Address</Label>
+                        <Input
+                          id="new-customer-billing"
+                          placeholder="Registered address for VAT bills (optional)"
+                          value={newCustomerBilling}
+                          onChange={(e) => setNewCustomerBilling(e.target.value)}
+                          data-testid="input-new-customer-billing"
                         />
                       </div>
                       <div>
@@ -1914,6 +1965,52 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
                   rows={3}
                   data-testid="input-order-note"
                 />
+              </div>
+
+              <div className="space-y-2 rounded-lg border p-3">
+                <div className="text-sm font-medium">Delivery</div>
+                <div className="grid gap-2">
+                  <div className="flex items-baseline gap-2 text-sm">
+                    <span className="text-xs text-muted-foreground w-24 flex-shrink-0">Ship to</span>
+                    <span className="min-w-0">
+                      {selectedCustomer?.address
+                        ? selectedCustomer.address
+                        : <span className="text-muted-foreground italic">no address on customer account</span>}
+                      <span className="text-xs text-muted-foreground"> (from customer account)</span>
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground w-24 flex-shrink-0 flex items-center gap-1">
+                      <MapPin className="w-3 h-3" /> Map location
+                    </span>
+                    <div className="min-w-[240px] flex-1">
+                      <CustomerLocationPicker
+                        customerId={parseInt(customerId)}
+                        customerAddress={selectedCustomer?.address}
+                        value={orderLocation}
+                        onChange={setOrderLocation}
+                        isB2B={!isD2CCustomer(selectedCustomer)}
+                      />
+                    </div>
+                  </div>
+                  <div className="text-xs text-muted-foreground pl-[6.5rem]">For sales data — not the courier address.</div>
+                  {isD2CCustomer(selectedCustomer) && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground w-24 flex-shrink-0">Channel</span>
+                      <select
+                        className="h-8 rounded-md border bg-background px-2 text-sm capitalize"
+                        value={orderChannel}
+                        onChange={(e) => setOrderChannel(e.target.value)}
+                        data-testid="select-order-channel"
+                      >
+                        <option value="">—</option>
+                        {ORDER_CHANNELS.map((c) => (
+                          <option key={c} value={c} className="capitalize">{c}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div className="space-y-2">

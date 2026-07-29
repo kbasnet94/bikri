@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from "react";
-import { useCustomersWithAging, useAgingTotals, useCustomer, useCreateCustomer, useCreateLedgerEntry, useCustomerLedger, useUpdateCustomerType, useBulkUpdateCustomerType, useUpdateCustomerDiscount } from "@/hooks/use-customers";
+import { useCustomersWithAging, useAgingTotals, useCustomer, useCreateCustomer, useCreateLedgerEntry, useCustomerLedger, useUpdateCustomerType, useBulkUpdateCustomerType, useUpdateCustomerDiscount, useUpdateCustomerBillingAddress } from "@/hooks/use-customers";
 import { usualDiscountLabel } from "@/lib/usual-discount";
 import { useCurrency } from "@/hooks/use-currency";
 import { useAuth } from "@/hooks/use-auth";
@@ -431,6 +431,7 @@ function CreateCustomerDialog({ open, onOpenChange }: any) {
   const [selectedTypeId, setSelectedTypeId] = useState<string>("");
   const [typeError, setTypeError] = useState(false);
   const [usualDiscount, setUsualDiscount] = useState<string>("");
+  const [billingAddress, setBillingAddress] = useState<string>("");
   const { user } = useAuth();
   const canEditLedger = canAccess(user?.roles ?? [], "ledger-edit");
 
@@ -467,6 +468,7 @@ function CreateCustomerDialog({ open, onOpenChange }: any) {
       }
       await createCustomer.mutateAsync({
         ...values,
+        billingAddress: billingAddress.trim() || undefined,
         creditLimit: creditLimitInCents,
         customerTypeId: selectedTypeId && selectedTypeId !== 'none' ? parseInt(selectedTypeId) : null,
         defaultDiscountPct,
@@ -477,6 +479,7 @@ function CreateCustomerDialog({ open, onOpenChange }: any) {
       setSelectedTypeId("");
       setTypeError(false);
       setUsualDiscount("");
+      setBillingAddress("");
     } catch (error: any) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     }
@@ -567,6 +570,17 @@ function CreateCustomerDialog({ open, onOpenChange }: any) {
                 </FormItem>
               )}
             />
+            <FormItem>
+              <FormLabel>Billing Address (optional)</FormLabel>
+              <FormControl>
+                <Input
+                  placeholder="Registered address for VAT bills / invoices"
+                  value={billingAddress}
+                  onChange={(e) => setBillingAddress(e.target.value)}
+                  data-testid="input-billing-address"
+                />
+              </FormControl>
+            </FormItem>
             <FormField
               control={form.control}
               name="panVatNumber"
@@ -653,6 +667,21 @@ function CustomerDetailsDialog({ customer: customerProp, open, onOpenChange }: a
   const { user } = useAuth();
   const canEditLedger = canAccess(user?.roles ?? [], "ledger-edit");
   const ledgerEndRef = useRef<HTMLDivElement>(null);
+
+  const updateBillingAddress = useUpdateCustomerBillingAddress();
+  const [billingInput, setBillingInput] = useState<string>(customer.billing_address ?? "");
+  useEffect(() => {
+    setBillingInput(customer.billing_address ?? "");
+  }, [customer.billing_address]);
+
+  const handleSaveBilling = async () => {
+    try {
+      await updateBillingAddress.mutateAsync({ customerId: customer.id, billingAddress: billingInput.trim() || null });
+      toast({ title: "Billing address updated" });
+    } catch (error: any) {
+      toast({ title: "Failed to update billing address", description: error.message, variant: "destructive" });
+    }
+  };
 
   const [discountInput, setDiscountInput] = useState<string>(
     customer.default_discount_pct == null ? "" : String(customer.default_discount_pct)
@@ -1134,7 +1163,33 @@ function CustomerDetailsDialog({ customer: customerProp, open, onOpenChange }: a
                   <h4 className="font-medium text-muted-foreground mb-2">Address</h4>
                   <p>{customer.address || 'No address on file.'}</p>
                 </div>
-                <CustomerLocationsSection customerId={customer.id} />
+                <div>
+                  <h4 className="font-medium text-muted-foreground mb-2">Billing Address</h4>
+                  {canEditLedger ? (
+                    <div className="flex items-center gap-2">
+                      <Input
+                        className="h-8 text-sm"
+                        placeholder="Registered address for VAT bills"
+                        value={billingInput}
+                        onChange={(e) => setBillingInput(e.target.value)}
+                        data-testid="input-detail-billing-address"
+                      />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8"
+                        onClick={handleSaveBilling}
+                        disabled={updateBillingAddress.isPending}
+                        data-testid="button-save-billing-address"
+                      >
+                        {updateBillingAddress.isPending ? "Saving..." : "Save"}
+                      </Button>
+                    </div>
+                  ) : (
+                    <p>{customer.billing_address || '—'}</p>
+                  )}
+                </div>
+                <CustomerLocationsSection customerId={customer.id} customer={customer} />
               </div>
             </div>
           </TabsContent>

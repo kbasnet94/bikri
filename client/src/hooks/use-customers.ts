@@ -10,6 +10,7 @@ export interface Customer {
   email: string | null;
   phone: string | null;
   address: string | null;
+  billing_address: string | null;
   pan_vat_number: string | null;
   credit_limit: number;
   current_balance: number;
@@ -318,6 +319,7 @@ export function useCreateCustomer() {
       email?: string;
       phone?: string;
       address?: string;
+      billingAddress?: string;
       panVatNumber?: string;
       creditLimit?: number;
       customerTypeId?: number | null;
@@ -332,6 +334,7 @@ export function useCreateCustomer() {
           email: customer.email || null,
           phone: customer.phone || null,
           address: customer.address || null,
+          billing_address: customer.billingAddress || null,
           pan_vat_number: customer.panVatNumber || null,
           credit_limit: customer.creditLimit || 0,
           current_balance: 0,
@@ -359,6 +362,24 @@ export function useUpdateCustomerType() {
       const { error } = await supabase
         .from('customers')
         .update({ customer_type_id: customerTypeId })
+        .eq('id', customerId);
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+    },
+  });
+}
+
+export function useUpdateCustomerBillingAddress() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ customerId, billingAddress }: { customerId: number; billingAddress: string | null }) => {
+      const { error } = await supabase
+        .from('customers')
+        .update({ billing_address: billingAddress })
         .eq('id', customerId);
 
       if (error) throw error;

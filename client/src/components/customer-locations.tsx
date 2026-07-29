@@ -17,6 +17,7 @@ import {
   useCustomerLocations,
   useDeleteCustomerLocation,
 } from "@/hooks/use-customer-locations";
+import { useSetOrderLocation } from "@/hooks/use-orders";
 
 /**
  * Google Places search box. Debounced autocomplete against the Places API
@@ -26,12 +27,15 @@ export function PlaceSearchInput({
   onPick,
   placeholder = "Search a place or address...",
   disabled,
+  initialQuery,
 }: {
   onPick: (place: { placeId: string; displayName: string; formattedAddress: string; lat: number; lng: number }) => void;
   placeholder?: string;
   disabled?: boolean;
+  /** Seed the search (e.g. the order's free-text address) so suggestions appear immediately. */
+  initialQuery?: string;
 }) {
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(initialQuery ?? "");
   const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [isResolving, setIsResolving] = useState(false);
@@ -119,11 +123,241 @@ export function PlaceSearchInput({
 }
 
 /**
+ * Location model v2: an order POINTS at one of its customer's locations
+ * (orders.location_id) — pins live only in customer_locations, the single
+ * source for the map. D2C: the pin is the person; B2B: the delivery point
+ * (distribution hub) — clients fan out to branches themselves.
+ */
+
+export const ORDER_CHANNELS = ["instagram", "facebook", "daraz", "friends", "event"] as const;
+
+export function isD2CCustomer(customer: any): boolean {
+  // "Consumer" is the D2C type (spec 2026-07-29); untyped customers are
+  // treated as D2C so the channel question is asked rather than skipped.
+  const typeName = customer?.customer_type?.name?.toLowerCase() ?? null;
+  return typeName == null || typeName === "consumer";
+}
+
+/**
+ * Pick one of the customer's locations, or search a new place (which is
+ * saved as a customer location and then selected). Controlled: reports the
+ * chosen CustomerLocation (or null) via onChange. Used in the create-order
+ * flow and the order-details footer.
+ */
+export function CustomerLocationPicker({
+  customerId,
+  customerAddress,
+  value,
+  onChange,
+  compact,
+  isB2B,
+}: {
+  customerId: number;
+  customerAddress?: string | null;
+  value: { id: number; label: string | null; formatted_address: string } | null;
+  onChange: (loc: any | null) => void;
+  compact?: boolean;
+  /** B2B customers distinguish storefront vs drop-off when adding. */
+  isB2B?: boolean;
+}) {
+  const { data: locations } = useCustomerLocations(customerId);
+  const addLocation = useAddCustomerLocation();
+  const { toast } = useToast();
+  const [isSearching, setIsSearching] = useState(false);
+  const [newKind, setNewKind] = useState<'storefront' | 'dropoff'>('storefront');
+
+  const atCap = (locations?.length ?? 0) >= MAX_LOCATIONS_PER_CUSTOMER;
+
+  const handlePick = async (place: { placeId: string; displayName: string; formattedAddress: string; lat: number; lng: number }) => {
+    // Same place picked again → select the existing location, don't duplicate.
+    const existing = (locations || []).find((l) => l.place_id === place.placeId);
+    if (existing) {
+      onChange(existing);
+      setIsSearching(false);
+      return;
+    }
+    try {
+      const loc = await addLocation.mutateAsync({
+        customerId,
+        label: place.displayName || undefined,
+        formattedAddress: place.formattedAddress,
+        placeId: place.placeId,
+        lat: place.lat,
+        lng: place.lng,
+        kind: isB2B ? newKind : 'storefront',
+      });
+      onChange(loc);
+      setIsSearching(false);
+    } catch (err: any) {
+      toast({ title: "Failed to add location", description: err.message, variant: "destructive" });
+    }
+  };
+
+  if (isSearching) {
+    return (
+      <div className="space-y-1" onClick={(e) => e.stopPropagation()}>
+        {addLocation.isPending ? (
+          <div className="flex items-center gap-2 h-9 px-3 text-sm text-muted-foreground rounded-md border">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" /> Saving location...
+          </div>
+        ) : (
+          <PlaceSearchInput
+            onPick={handlePick}
+            initialQuery={customerAddress ?? ""}
+            placeholder="Search a place or area..."
+          />
+        )}
+        <div className="flex items-center gap-2">
+          {isB2B && (
+          <div className="flex items-center gap-1 text-xs">
+              {(['storefront', 'dropoff'] as const).map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  className={
+                    "rounded-full px-2 py-0.5 border transition-colors " +
+                    (newKind === k ? "border-primary text-primary bg-primary/10" : "border-border text-muted-foreground")
+                  }
+                  onClick={() => setNewKind(k)}
+                >
+                  {k === 'storefront' ? 'Storefront' : 'Drop-off'}
+                </button>
+              ))}
+            </div>
+          )}
+          <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={() => setIsSearching(false)}>
+            Cancel
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={compact ? "flex items-center gap-1.5" : "flex items-center gap-2"} onClick={(e) => e.stopPropagation()}>
+      <select
+        className="h-8 rounded-md border bg-background px-2 text-sm min-w-0 flex-1"
+        value={value?.id ?? ""}
+        onChange={(e) => {
+          const id = e.target.value;
+          onChange(id ? (locations || []).find((l) => l.id === Number(id)) ?? null : null);
+        }}
+        data-testid="select-order-location"
+      >
+        <option value="">No location</option>
+        {(locations || []).map((l) => (
+          <option key={l.id} value={l.id}>
+            {(l.label || l.formatted_address) + (isB2B && l.kind === 'dropoff' ? ' [drop-off]' : '')}
+          </option>
+        ))}
+      </select>
+      {placesConfigured() && !atCap && (
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-8 flex-shrink-0"
+          onClick={() => setIsSearching(true)}
+          title="Add a new location for this customer"
+          data-testid="button-picker-new-location"
+        >
+          <Plus className="w-3.5 h-3.5" />
+        </Button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Order-footer control: shows/edits which customer location the order went
+ * to, plus the D2C channel badge. Quiet metadata next to VAT/Pro Forma.
+ */
+export function OrderLocationControl({ order }: { order: any }) {
+  const setOrderLocation = useSetOrderLocation();
+  const { toast } = useToast();
+  const [isEditing, setIsEditing] = useState(false);
+
+  const pin = order.location ?? null;
+
+  const save = async (loc: any | null) => {
+    try {
+      await setOrderLocation.mutateAsync({ orderId: order.id, locationId: loc?.id ?? null });
+      setIsEditing(false);
+    } catch (err: any) {
+      toast({ title: "Failed to set order location", description: err.message, variant: "destructive" });
+    }
+  };
+
+  if (isEditing) {
+    return (
+      <span className="inline-block w-72 align-middle" onClick={(e) => e.stopPropagation()}>
+        <CustomerLocationPicker
+          customerId={order.customer_id}
+          customerAddress={order.customer?.address}
+          value={pin}
+          onChange={save}
+          compact
+          isB2B={!isD2CCustomer(order.customer)}
+        />
+      </span>
+    );
+  }
+
+  if (pin) {
+    return (
+      <span className="inline-flex items-center gap-1 text-sm group min-w-0" data-testid={`order-location-${order.id}`}>
+        <MapPin className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+        <a
+          href={
+            pin.place_id
+              ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(pin.formatted_address)}&query_place_id=${pin.place_id}`
+              : `https://www.google.com/maps/search/?api=1&query=${pin.lat},${pin.lng}`
+          }
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="text-muted-foreground hover:text-foreground hover:underline underline-offset-2 truncate max-w-[240px]"
+          title={`Map location (for sales data, not the courier address): ${pin.label ? pin.label + " — " : ""}${pin.formatted_address} (open in Google Maps)`}
+        >
+          {pin.label || pin.formatted_address}
+        </a>
+        {order.channel && (
+          <span className="text-xs rounded-full bg-muted px-2 py-0.5 text-muted-foreground capitalize">{order.channel}</span>
+        )}
+        <button
+          type="button"
+          className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground flex-shrink-0 text-xs underline underline-offset-2 decoration-dotted"
+          onClick={(e) => { e.stopPropagation(); setIsEditing(true); }}
+          data-testid={`button-edit-order-location-${order.id}`}
+        >
+          change
+        </button>
+      </span>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-primary transition-colors"
+      onClick={(e) => { e.stopPropagation(); setIsEditing(true); }}
+      data-testid={`button-set-order-location-${order.id}`}
+    >
+      <MapPin className="w-3.5 h-3.5" />
+      <span className="underline underline-offset-2 decoration-dotted" title="Map location for sales data — not the courier address">Set location</span>
+      {order.channel && (
+        <span className="text-xs rounded-full bg-muted px-2 py-0.5 text-muted-foreground capitalize">{order.channel}</span>
+      )}
+    </button>
+  );
+}
+
+/**
  * Branch-locations editor for a customer (Info tab). Lists saved locations,
  * adds via Places autocomplete (up to MAX_LOCATIONS_PER_CUSTOMER), deletes.
  * The free-text customers.address field is untouched by design.
  */
-export function CustomerLocationsSection({ customerId }: { customerId: number }) {
+export function CustomerLocationsSection({ customerId, customer }: { customerId: number; customer?: any }) {
+  const isB2B = customer ? !isD2CCustomer(customer) : false;
   const { data: locations, isLoading } = useCustomerLocations(customerId);
   const addLocation = useAddCustomerLocation();
   const deleteLocation = useDeleteCustomerLocation();
@@ -137,7 +371,14 @@ export function CustomerLocationsSection({ customerId }: { customerId: number })
   const count = locations?.length ?? 0;
   const atCap = count >= MAX_LOCATIONS_PER_CUSTOMER;
 
+  const [newKind, setNewKind] = useState<'storefront' | 'dropoff'>('storefront');
+
   const handlePick = async (place: { placeId: string; displayName: string; formattedAddress: string; lat: number; lng: number }) => {
+    if ((locations || []).some((l) => l.place_id === place.placeId)) {
+      toast({ title: "That place is already in this customer's locations" });
+      setIsAdding(false);
+      return;
+    }
     try {
       await addLocation.mutateAsync({
         customerId,
@@ -146,6 +387,7 @@ export function CustomerLocationsSection({ customerId }: { customerId: number })
         placeId: place.placeId,
         lat: place.lat,
         lng: place.lng,
+        kind: isB2B ? newKind : 'storefront',
       });
       toast({ title: "Location added" });
       setIsAdding(false);
@@ -182,10 +424,35 @@ export function CustomerLocationsSection({ customerId }: { customerId: number })
 
       {isAdding && (
         <div className="space-y-1">
-          <PlaceSearchInput onPick={handlePick} disabled={addLocation.isPending} />
-          <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={() => setIsAdding(false)}>
-            Cancel
-          </Button>
+          {addLocation.isPending ? (
+            <div className="flex items-center gap-2 h-9 px-3 text-sm text-muted-foreground rounded-md border">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Saving location...
+            </div>
+          ) : (
+            <PlaceSearchInput onPick={handlePick} />
+          )}
+          <div className="flex items-center gap-2">
+            {isB2B && (
+            <div className="flex items-center gap-1 text-xs">
+              {(['storefront', 'dropoff'] as const).map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  className={
+                    "rounded-full px-2 py-0.5 border transition-colors " +
+                    (newKind === k ? "border-primary text-primary bg-primary/10" : "border-border text-muted-foreground")
+                  }
+                  onClick={() => setNewKind(k)}
+                >
+                  {k === 'storefront' ? 'Storefront' : 'Drop-off'}
+                </button>
+              ))}
+            </div>
+            )}
+            <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={() => setIsAdding(false)}>
+              Cancel
+            </Button>
+          </div>
         </div>
       )}
 
@@ -217,7 +484,14 @@ export function CustomerLocationsSection({ customerId }: { customerId: number })
                 className="min-w-0 flex-1 hover:underline"
                 title="Open in Google Maps"
               >
-                {loc.label && <div className="font-medium truncate">{loc.label}</div>}
+                {loc.label && (
+                  <div className="font-medium truncate">
+                    {loc.label}
+                    {isB2B && loc.kind === 'dropoff' && (
+                      <span className="ml-1.5 text-[10px] uppercase tracking-wide rounded-full bg-muted px-1.5 py-0.5 text-muted-foreground align-middle">drop-off</span>
+                    )}
+                  </div>
+                )}
                 <div className="text-xs text-muted-foreground truncate" title={loc.formatted_address}>
                   {loc.formatted_address}
                 </div>

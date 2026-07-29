@@ -29,7 +29,10 @@ export interface Order {
   vat_bill_number: string | null;
   order_date: string;
   created_at: string;
+  location_id: number | null;
+  channel: string | null; // 'instagram' | 'facebook' | 'daraz' — D2C only
   customer?: Customer;
+  location?: import("./use-customer-locations").CustomerLocation | null;
   items?: OrderItem[];
 }
 
@@ -44,6 +47,7 @@ export function useOrders(customerId?: number) {
         .select(`
           *,
           customer:customers(*),
+          location:customer_locations(*),
           items:order_items(*, product:products(*), variant:product_variants(*))
         `);
 
@@ -98,6 +102,7 @@ export function usePaginatedOrders(params: {
         .select(`
           *,
           customer:customers(*),
+          location:customer_locations(*),
           items:order_items(*, product:products(*), variant:product_variants(*))
         `, { count: 'exact' })
         .eq('status', status);
@@ -190,6 +195,7 @@ export function useOrder(id: number) {
         .select(`
           *,
           customer:customers(*),
+          location:customer_locations(*),
           items:order_items(*, product:products(*), variant:product_variants(*))
         `)
         .eq('id', id)
@@ -206,6 +212,49 @@ export function useOrder(id: number) {
   });
 }
 
+/** Channel + location of a customer's most recent order — used to pre-fill
+ * the create-order flow for repeat customers. */
+export function useLastOrderMeta(customerId: number | undefined) {
+  return useQuery({
+    queryKey: ['orders', 'last-meta', customerId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('orders')
+        .select('id, channel, location_id, location:customer_locations(*)')
+        .eq('customer_id', customerId!)
+        .order('order_date', { ascending: false })
+        .order('id', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (error) throw error;
+      return data ?? null;
+    },
+    enabled: !!customerId,
+  });
+}
+
+/** Point an order at one of its customer's locations (or clear it). */
+export function useSetOrderLocation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ orderId, locationId, channel }: { orderId: number; locationId: number | null; channel?: string | null }) => {
+      const patch: Record<string, any> = { location_id: locationId };
+      if (channel !== undefined) patch.channel = channel;
+      const { error } = await supabase
+        .from('orders')
+        .update(patch)
+        .eq('id', orderId);
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['orders'] });
+    },
+  });
+}
+
 export function useCreateOrder() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
@@ -219,6 +268,8 @@ export function useCreateOrder() {
       orderDate?: string;
       vatBillNumber?: string;
       deliveryFee?: number;
+      locationId?: number;   // pointer to one of the customer's locations
+      channel?: string;      // 'instagram' | 'facebook' | 'daraz' — D2C only
     }) => {
       if (!user?.businessId) throw new Error('No business selected');
 
@@ -304,6 +355,8 @@ export function useCreateOrder() {
           note: orderData.note || null,
           vat_bill_number: finalVatBillNumber,
           order_date: orderData.orderDate || new Date().toISOString(),
+          location_id: orderData.locationId ?? null,
+          channel: orderData.channel ?? null,
         })
         .select()
         .single();
