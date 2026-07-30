@@ -29,8 +29,9 @@ address.
 In the customer block of the pro forma:
 
 1. **Billing address differs** (billing set, and trimmed value ≠ trimmed `address`):
-   print both, labelled — `Billing: <billing_address>` and `Ship to: <address>` —
-   so the courier line never disappears from bills that previously carried it.
+   print both, labelled — `Billing Address: <billing_address>` and
+   `Shipping Address: <address>` — so the courier line never disappears from
+   bills that previously carried it.
 2. **Billing set and equal to address:** print it once, unlabelled (current look).
 3. **Billing blank:** print `address` once, unlabelled (exactly today's output).
 
