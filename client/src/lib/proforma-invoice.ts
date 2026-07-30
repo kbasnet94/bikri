@@ -2,6 +2,8 @@
 // Opens a print-ready window; the browser's print dialog lets the user save
 // it as a PDF. No PDF library needed, works fully offline.
 
+import { resolveInvoiceAddresses } from './invoice-address';
+
 type ProFormaOrder = {
   id: number;
   order_date: string;
@@ -14,6 +16,7 @@ type ProFormaOrder = {
     name?: string;
     phone?: string | null;
     address?: string | null;
+    billing_address?: string | null;
     pan_vat_number?: string | null;
   };
   items?: {
@@ -74,6 +77,14 @@ export function openProFormaInvoice(
        ${deliveryFee > 0 ? `<tr><td>Delivery Fee</td><td class="num">${esc(formatCurrency(deliveryFee))}</td></tr>` : ''}
        <tr class="grand"><td>Grand Total</td><td class="num">${esc(formatCurrency(itemsSubtotal + deliveryFee))}</td></tr>`;
 
+  const addr = resolveInvoiceAddresses(order.customer);
+  const addressHtml = !addr
+    ? ''
+    : 'single' in addr
+      ? `<div>${esc(addr.single)}</div>`
+      : `<div><strong>Billing Address:</strong> ${esc(addr.billing)}</div>` +
+        `<div><strong>Shipping Address:</strong> ${esc(addr.shipping)}</div>`;
+
   const html = `<!doctype html>
 <html>
 <head>
@@ -127,7 +138,7 @@ export function openProFormaInvoice(
   <div class="block">
     <h3>Bill To</h3>
     <div><strong>${esc(order.customer?.name || '-')}</strong></div>
-    ${order.customer?.address ? `<div>${esc(order.customer.address)}</div>` : ''}
+    ${addressHtml}
     ${order.customer?.phone ? `<div>${esc(order.customer.phone)}</div>` : ''}
     ${order.customer?.pan_vat_number ? `<div>PAN/VAT: ${esc(order.customer.pan_vat_number)}</div>` : ''}
   </div>
