@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "check": "tsc",
     "db:seed": "tsx script/seed.ts",
-    "test": "vitest run"
+    "test": "vitest run",
+    "integrity-check": "tsx script/integrity-check.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
