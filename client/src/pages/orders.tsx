@@ -2076,7 +2076,7 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
                     </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter>
-                    <AlertDialogCancel data-testid="cancel-business-payment-warning">Keep Credit</AlertDialogCancel>
+                    <AlertDialogCancel data-testid="cancel-business-payment-warning">Cancel</AlertDialogCancel>
                     <AlertDialogAction
                       data-testid="confirm-business-payment-warning"
                       onClick={() => {

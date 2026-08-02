@@ -8,7 +8,7 @@ import { createClient } from '@supabase/supabase-js';
 import { readFileSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { computeCustomerBalance } from '../client/src/lib/ledger-math';
+import { computeCustomerBalance, isBalanceReducing } from '../client/src/lib/ledger-math';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -53,7 +53,6 @@ type OrderRow = { id: number; status: string; payment_status: string; total_amou
 type EntryRow = { id: number; customer_id: number; type: string; amount: number; order_id: number | null };
 type CustomerRow = { id: number; name: string; current_balance: number };
 
-const REDUCING = new Set(['credit', 'payment']);
 const npr = (cents: number) => (cents / 100).toFixed(2);
 
 async function main() {
@@ -96,8 +95,8 @@ async function main() {
   for (const o of orders) {
     if (o.status !== 'cancelled') continue;
     const le = byOrder.get(o.id) ?? [];
-    const dr = le.filter((e) => !REDUCING.has(e.type)).reduce((s, e) => s + e.amount, 0);
-    const cr = le.filter((e) => REDUCING.has(e.type)).reduce((s, e) => s + e.amount, 0);
+    const dr = le.filter((e) => !isBalanceReducing(e.type)).reduce((s, e) => s + e.amount, 0);
+    const cr = le.filter((e) => isBalanceReducing(e.type)).reduce((s, e) => s + e.amount, 0);
     if (dr !== cr) {
       report(false, `cancelled order #${o.id} "${custName.get(o.customer_id)}": dr ${npr(dr)} != cr ${npr(cr)} (phantom ${npr(dr - cr)})`);
     }

@@ -342,7 +342,7 @@ export function useCreateCustomer() {
           customer_type_id: customer.customerTypeId || null,
           default_discount_pct: customer.defaultDiscountPct ?? null,
         })
-        .select()
+        .select('*, customer_type:customer_types(id, name, is_business)')
         .single();
 
       if (error) throw error;
