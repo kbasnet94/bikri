@@ -6,6 +6,7 @@ export interface CustomerType {
   id: number;
   business_id: string;
   name: string;
+  is_business: boolean;
   created_at: string;
 }
 
@@ -50,6 +51,24 @@ export function useCreateCustomerType() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['customer-types'] });
+    },
+  });
+}
+
+export function useSetCustomerTypeBusiness() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ id, isBusiness }: { id: number; isBusiness: boolean }) => {
+      const { error } = await supabase
+        .from('customer_types')
+        .update({ is_business: isBusiness })
+        .eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['customer-types'] });
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
     },
   });
 }
