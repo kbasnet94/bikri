@@ -572,8 +572,8 @@ git commit -m "feat: read-only ledger integrity check with held-order allowlist"
 Executed on branch `feat/payment-defaults-export-integrity` (8 commits, 2122ac0..6901a39). All task and
 final reviews clean. Deferred follow-ups (non-blocking, from final whole-branch review):
 
-- `isDataCustomer` naming aside: `isD2CCustomer` (customer-locations.tsx) still keys off the type NAME
-  "consumer"; should be re-keyed off `!is_business` so the two business/consumer notions can't disagree.
+- ~~`isD2CCustomer` (customer-locations.tsx) still keys off the type NAME "consumer"~~ — DONE 2026-08-02
+  (commit 265cfde): re-keyed off `!isBusinessCustomer`, behavior-preserving.
 - `useCustomerLedger` (use-customers.ts) is unpaginated → silently capped at ~1000 entries; the export's
   closing-balance promise breaks for customers past the cap. Copy the pagination pattern already used by
   `useCustomersWithAging`.
