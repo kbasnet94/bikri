@@ -564,3 +564,26 @@ git commit -m "feat: read-only ledger integrity check with held-order allowlist"
   - Account page → wholesale toggles persist.
   - `npm run integrity-check` → 0 new findings.
 - [ ] **Step 4: Hand to Karan for localhost verification. Do NOT push** — `main` auto-deploys; Karan pushes (or approves push) after verifying.
+
+---
+
+## Post-implementation notes (2026-08-02)
+
+Executed on branch `feat/payment-defaults-export-integrity` (8 commits, 2122ac0..6901a39). All task and
+final reviews clean. Deferred follow-ups (non-blocking, from final whole-branch review):
+
+- `isDataCustomer` naming aside: `isD2CCustomer` (customer-locations.tsx) still keys off the type NAME
+  "consumer"; should be re-keyed off `!is_business` so the two business/consumer notions can't disagree.
+- `useCustomerLedger` (use-customers.ts) is unpaginated → silently capped at ~1000 entries; the export's
+  closing-balance promise breaks for customers past the cap. Copy the pagination pattern already used by
+  `useCustomersWithAging`.
+- Fiscal download button `disabled` uses unfiltered counts (cosmetic).
+- `client/src/lib/database.types.ts` is corrupted generated output (pre-existing, unreferenced) — regenerate.
+- Dialog reopen with the same customer pre-selected leaves payment status empty instead of re-deriving
+  Credit (fails safe; convenience only).
+
+Manual steps before push (main auto-deploys):
+1. Run `supabase-customer-type-is-business.sql` in the Supabase SQL editor (now tenant-scoped).
+2. Verify on localhost:5000: types card toggles; Gym-client order pre-fills Credit + Bank/QR warning
+   (also via the inline new-customer form); Consumer order empty/no warning; N&H FY 2082/83 export
+   closes at 522,135.36 with no cancelled rows; `npm run integrity-check` → 0 new / 28 held.
