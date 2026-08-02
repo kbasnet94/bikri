@@ -793,9 +793,33 @@ function CustomerDetailsDialog({ customer: customerProp, open, onOpenChange }: a
   };
 
   const downloadLedgerXLSX = async (exportMode: 'fiscal' | 'all' = 'fiscal') => {
-    const entriesToExport = exportMode === 'all' ? (ledger || []) : filteredLedger;
+    // Exports follow the app's balance convention: entries tied to cancelled
+    // orders are excluded (spec 2026-08-02). The in-app dialog still shows them.
+    const { data: cancelledRows, error: cancelledErr } = await supabase
+      .from('orders')
+      .select('id')
+      .eq('customer_id', customer.id)
+      .eq('status', 'cancelled');
+    if (cancelledErr) {
+      toast({ title: "Export failed", description: cancelledErr.message, variant: "destructive" });
+      return;
+    }
+    const cancelledIds = new Set((cancelledRows || []).map((o) => o.id));
+    const notCancelled = (e: { order_id: number | null }) =>
+      e.order_id === null || !cancelledIds.has(e.order_id);
 
-    if (entriesToExport.length === 0 && (exportMode === 'all' || openingBalance === null || openingBalance === 0)) {
+    const entriesToExport = (exportMode === 'all' ? (ledger || []) : filteredLedger).filter(notCancelled);
+
+    const exportOpeningBalance = (exportMode === 'fiscal' && openingBalance !== null && fyDates && ledger)
+      ? ledger.reduce((sum, entry) => {
+          if (!notCancelled(entry)) return sum;
+          const entryDate = toLocalDate(entry.entry_date!);
+          const startDate = new Date(fyDates.start.getFullYear(), fyDates.start.getMonth(), fyDates.start.getDate());
+          return entryDate < startDate ? sum + ledgerBalanceDelta(entry.type, entry.amount) : sum;
+        }, 0)
+      : null;
+
+    if (entriesToExport.length === 0 && (exportMode === 'all' || exportOpeningBalance === null || exportOpeningBalance === 0)) {
       toast({ title: "No data to export", description: "This customer has no transactions yet.", variant: "destructive" });
       return;
     }
@@ -846,9 +870,9 @@ function CustomerDetailsDialog({ customer: customerProp, open, onOpenChange }: a
     };
 
     // Opening balance row (fiscal-year exports only)
-    if (exportMode === 'fiscal' && openingBalance !== null && fyDates) {
-      const ob = openingBalance / 100;
-      writeRow(toExcelDate(fyDates.start), `Opening Balance (FY ${fyLabel})`, openingBalance > 0 ? ob : null, openingBalance < 0 ? Math.abs(ob) : null);
+    if (exportMode === 'fiscal' && exportOpeningBalance !== null && fyDates) {
+      const ob = exportOpeningBalance / 100;
+      writeRow(toExcelDate(fyDates.start), `Opening Balance (FY ${fyLabel})`, exportOpeningBalance > 0 ? ob : null, exportOpeningBalance < 0 ? Math.abs(ob) : null);
     }
 
     // Ledger entries: credits/payments reduce balance (cr), everything else increases it (dr).

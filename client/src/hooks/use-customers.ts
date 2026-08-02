@@ -15,7 +15,7 @@ export interface Customer {
   credit_limit: number;
   current_balance: number;
   customer_type_id: number | null;
-  customer_type?: { id: number; name: string } | null;
+  customer_type?: { id: number; name: string; is_business: boolean } | null;
   default_discount_pct?: number | string | null;
   created_at: string;
 }
@@ -59,7 +59,7 @@ export function useCustomers(search?: string, limit?: number) {
     queryFn: async () => {
       let query = supabase
         .from('customers')
-        .select('*, customer_type:customer_types(id, name)');
+        .select('*, customer_type:customer_types(id, name, is_business)');
 
       if (search) {
         query = query.or(`name.ilike.%${search}%,email.ilike.%${search}%,phone.ilike.%${search}%`);
@@ -107,7 +107,7 @@ export function useCustomersWithAging(search?: string, includeAll?: boolean) {
       const buildQuery = () => {
         let q = supabase
           .from('customers')
-          .select('*, customer_type:customer_types(id, name)');
+          .select('*, customer_type:customer_types(id, name, is_business)');
         if (search) {
           // While searching, look across ALL customers (incl. zero-balance
           // cash/COD clients) so they remain findable.
@@ -277,7 +277,7 @@ export function useCustomer(id: number) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('customers')
-        .select('*, customer_type:customer_types(id, name)')
+        .select('*, customer_type:customer_types(id, name, is_business)')
         .eq('id', id)
         .single();
 
@@ -342,7 +342,7 @@ export function useCreateCustomer() {
           customer_type_id: customer.customerTypeId || null,
           default_discount_pct: customer.defaultDiscountPct ?? null,
         })
-        .select()
+        .select('*, customer_type:customer_types(id, name, is_business)')
         .single();
 
       if (error) throw error;

@@ -53,6 +53,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
+import { defaultPaymentStatus, needsBusinessPaymentWarning } from "@/lib/payment-defaults";
 import { openProFormaInvoice } from "@/lib/proforma-invoice";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -1319,6 +1320,8 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
   const [newCustomerTypeId, setNewCustomerTypeId] = useState<string>("");
   const [orderNote, setOrderNote] = useState("");
   const [paymentStatus, setPaymentStatus] = useState<"COD" | "Bank Transfer/QR" | "Credit" | "">("");
+  const [paymentTouched, setPaymentTouched] = useState(false);
+  const [pendingWarnStatus, setPendingWarnStatus] = useState<"COD" | "Bank Transfer/QR" | null>(null);
   const [orderDate, setOrderDate] = useState(() => format(new Date(), "yyyy-MM-dd"));
   const [includeVat, setIncludeVat] = useState(false);
   const [vatBillNumber, setVatBillNumber] = useState("");
@@ -1335,6 +1338,23 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
     setOrderLocation(null);
     setOrderChannel("");
   }, [customerId]);
+  // Business-type customers buy on Credit (spec 2026-08-02). Re-derive on
+  // customer change, but never clobber an explicit choice this session.
+  useEffect(() => {
+    if (!paymentTouched) {
+      setPaymentStatus(defaultPaymentStatus(selectedCustomer));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCustomer]);
+  // A closed dialog forfeits its payment-status session state; reopening
+  // must re-derive the default rather than inherit a stale explicit choice.
+  useEffect(() => {
+    if (!open) {
+      setPaymentTouched(false);
+      setPendingWarnStatus(null);
+      setPaymentStatus("");
+    }
+  }, [open]);
   // Pre-fill for repeat customers: last order's location + channel win;
   // else a lone location, else a lone B2B drop-off. Always editable.
   useEffect(() => {
@@ -1564,6 +1584,8 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
       setCart([]);
       setOrderNote("");
       setPaymentStatus("");
+      setPaymentTouched(false);
+      setPendingWarnStatus(null);
       setOrderDate(format(new Date(), "yyyy-MM-dd"));
       setIncludeVat(false);
       setVatBillNumber("");
@@ -2015,7 +2037,17 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
 
               <div className="space-y-2">
                 <Label htmlFor="payment-status" className="text-sm">Payment Status</Label>
-                <Select value={paymentStatus} onValueChange={(val: "COD" | "Bank Transfer/QR" | "Credit") => setPaymentStatus(val)}>
+                <Select
+                  value={paymentStatus}
+                  onValueChange={(val: "COD" | "Bank Transfer/QR" | "Credit") => {
+                    if (needsBusinessPaymentWarning(selectedCustomer, val)) {
+                      setPendingWarnStatus(val as "COD" | "Bank Transfer/QR");
+                      return; // don't change the field until confirmed
+                    }
+                    setPaymentStatus(val);
+                    setPaymentTouched(true);
+                  }}
+                >
                   <SelectTrigger id="payment-status" data-testid="select-payment-status">
                     <SelectValue placeholder="Select payment status" />
                   </SelectTrigger>
@@ -2026,13 +2058,40 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
-                  {!paymentStatus 
+                  {!paymentStatus
                     ? "Select how this order will be paid."
-                    : paymentStatus === "Credit" 
+                    : paymentStatus === "Credit"
                       ? "Customer will pay later. You can add payment in the ledger later."
                       : "Payment will be recorded automatically in the customer's ledger."}
                 </p>
               </div>
+
+              <AlertDialog open={pendingWarnStatus !== null} onOpenChange={(o) => { if (!o) setPendingWarnStatus(null); }}>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Wholesale client — mark as already paid?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      {selectedCustomer?.name} is a wholesale client — {pendingWarnStatus} will mark this
+                      order as already paid and record the payment in their ledger. Continue?
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel data-testid="cancel-business-payment-warning">Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      data-testid="confirm-business-payment-warning"
+                      onClick={() => {
+                        if (pendingWarnStatus) {
+                          setPaymentStatus(pendingWarnStatus);
+                          setPaymentTouched(true);
+                        }
+                        setPendingWarnStatus(null);
+                      }}
+                    >
+                      Continue
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
 
               <div className="space-y-3">
                 <div className="flex items-center gap-2">

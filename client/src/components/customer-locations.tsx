@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { canAccess } from "@/lib/roles";
+import { isBusinessCustomer } from "@/lib/payment-defaults";
 import {
   autocompletePlaces,
   getPlaceDetails,
@@ -132,10 +133,11 @@ export function PlaceSearchInput({
 export const ORDER_CHANNELS = ["instagram", "facebook", "daraz", "friends", "event"] as const;
 
 export function isD2CCustomer(customer: any): boolean {
-  // "Consumer" is the D2C type (spec 2026-07-29); untyped customers are
-  // treated as D2C so the channel question is asked rather than skipped.
-  const typeName = customer?.customer_type?.name?.toLowerCase() ?? null;
-  return typeName == null || typeName === "consumer";
+  // D2C = not a wholesale/business type (customer_types.is_business, spec
+  // 2026-08-02) — same source of truth as payment defaults, so the two can't
+  // disagree. Untyped customers (or shapes without the customer_type join)
+  // are treated as D2C so the channel question is asked rather than skipped.
+  return !isBusinessCustomer(customer);
 }
 
 /**
