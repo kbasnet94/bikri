@@ -1346,6 +1346,15 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCustomer]);
+  // A closed dialog forfeits its payment-status session state; reopening
+  // must re-derive the default rather than inherit a stale explicit choice.
+  useEffect(() => {
+    if (!open) {
+      setPaymentTouched(false);
+      setPendingWarnStatus(null);
+      setPaymentStatus("");
+    }
+  }, [open]);
   // Pre-fill for repeat customers: last order's location + channel win;
   // else a lone location, else a lone B2B drop-off. Always editable.
   useEffect(() => {
