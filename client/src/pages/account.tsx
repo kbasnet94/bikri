@@ -14,7 +14,8 @@ import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { Building2, Users, UserPlus, Shield, Loader2, Coins, Calendar, Tags, Plus, X, Dices, PencilLine } from "lucide-react";
-import { useCustomerTypes, useCreateCustomerType, useDeleteCustomerType } from "@/hooks/use-customer-types";
+import { useCustomerTypes, useCreateCustomerType, useDeleteCustomerType, useSetCustomerTypeBusiness } from "@/hooks/use-customer-types";
+import { cn } from "@/lib/utils";
 import {
   getCurrentFiscalYear,
   getFiscalYearLabel,
@@ -687,6 +688,7 @@ function CustomerTypesCard() {
   const { data: customerTypes, isLoading } = useCustomerTypes();
   const createType = useCreateCustomerType();
   const deleteType = useDeleteCustomerType();
+  const setBusiness = useSetCustomerTypeBusiness();
   const { toast } = useToast();
   const [newTypeName, setNewTypeName] = useState("");
 
@@ -725,7 +727,7 @@ function CustomerTypesCard() {
           <Tags className="h-5 w-5" />
           Customer Types
         </CardTitle>
-        <CardDescription>Manage customer categories (e.g. B2B, Instagram, TikTok, Facebook, Daraz)</CardDescription>
+        <CardDescription>Manage customer categories. "Wholesale" types default new orders to Credit.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex gap-2">
@@ -764,6 +766,28 @@ function CustomerTypesCard() {
                 data-testid={`badge-customer-type-${type.id}`}
               >
                 {type.name}
+                <button
+                  type="button"
+                  title={type.is_business
+                    ? "Wholesale/credit type — new orders default to Credit"
+                    : "Mark as wholesale/credit type"}
+                  onClick={async () => {
+                    try {
+                      await setBusiness.mutateAsync({ id: type.id, isBusiness: !type.is_business });
+                    } catch (error: any) {
+                      toast({ title: "Failed to update type", description: error.message, variant: "destructive" });
+                    }
+                  }}
+                  className={cn(
+                    "ml-1 text-[10px] uppercase tracking-wide rounded px-1.5 py-0.5 border",
+                    type.is_business
+                      ? "bg-primary/10 text-primary border-primary/30"
+                      : "text-muted-foreground border-border"
+                  )}
+                  data-testid={`toggle-business-${type.id}`}
+                >
+                  {type.is_business ? "Wholesale" : "Retail/D2C"}
+                </button>
                 <button
                   onClick={() => handleDelete(type.id, type.name)}
                   className="ml-1 hover:text-destructive transition-colors"
