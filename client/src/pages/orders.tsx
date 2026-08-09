@@ -54,6 +54,7 @@ import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { defaultPaymentStatus, needsBusinessPaymentWarning } from "@/lib/payment-defaults";
+import { findDuplicateCustomers, type DuplicateCandidate } from "@/lib/duplicate-customer-query";
 import { openProFormaInvoice } from "@/lib/proforma-invoice";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -1318,6 +1319,9 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
   const [newCustomerBilling, setNewCustomerBilling] = useState("");
   const [newCustomerPanVat, setNewCustomerPanVat] = useState("");
   const [newCustomerTypeId, setNewCustomerTypeId] = useState<string>("");
+  const [newCustomerDupMatches, setNewCustomerDupMatches] = useState<DuplicateCandidate[]>([]);
+  // Ref, not state: "Create anyway" re-runs the handler synchronously.
+  const newCustomerDupOverrideRef = useRef(false);
   const [orderNote, setOrderNote] = useState("");
   const [paymentStatus, setPaymentStatus] = useState<"COD" | "Bank Transfer/QR" | "Credit" | "">("");
   const [paymentTouched, setPaymentTouched] = useState(false);
@@ -1415,6 +1419,8 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
   const openNewCustomerForm = () => {
     setCustomerId("");
     setSelectedCustomer(null);
+    setNewCustomerDupMatches([]);
+    newCustomerDupOverrideRef.current = false;
     setShowNewCustomerForm(true);
   };
 
@@ -1444,6 +1450,19 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
       toast({ title: "Customer type is required", variant: "destructive" });
       return;
     }
+    // Duplicate guard (spec 2026-08-09): block the first attempt when a
+    // same-name customer exists; "Create anyway" sets the override and retries.
+    if (!newCustomerDupOverrideRef.current) {
+      try {
+        const dups = await findDuplicateCustomers(newCustomerName);
+        if (dups.length > 0) {
+          setNewCustomerDupMatches(dups);
+          return;
+        }
+      } catch {
+        // A failed duplicate lookup must never block creating a customer.
+      }
+    }
     try {
       const newCustomer = await createCustomer.mutateAsync({
         name: newCustomerName.trim(),
@@ -1464,6 +1483,8 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
       setNewCustomerBilling("");
       setNewCustomerPanVat("");
       setNewCustomerTypeId("");
+      setNewCustomerDupMatches([]);
+      newCustomerDupOverrideRef.current = false;
       toast({ title: "Customer created successfully!" });
     } catch (error: any) {
       toast({ title: "Failed to create customer", description: error.message, variant: "destructive" });
@@ -1638,14 +1659,54 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
                     <div className="grid gap-3">
                       <div>
                         <Label htmlFor="new-customer-name" className="text-xs">Name *</Label>
-                        <Input 
+                        <Input
                           id="new-customer-name"
-                          placeholder="Customer name" 
+                          placeholder="Customer name"
                           value={newCustomerName}
-                          onChange={(e) => setNewCustomerName(e.target.value)}
+                          onChange={(e) => {
+                            setNewCustomerName(e.target.value);
+                            if (newCustomerDupMatches.length > 0) {
+                              setNewCustomerDupMatches([]);
+                              newCustomerDupOverrideRef.current = false;
+                            }
+                          }}
                           data-testid="input-new-customer-name"
                         />
                       </div>
+                      {newCustomerDupMatches.length > 0 && (
+                        <div
+                          className="rounded-md border border-destructive/50 bg-destructive/10 p-2 text-xs space-y-1.5"
+                          data-testid="duplicate-customer-warning-inline"
+                        >
+                          <p className="font-medium">This customer may already exist:</p>
+                          <ul className="space-y-0.5">
+                            {newCustomerDupMatches.map((d) => (
+                              <li key={d.id}>
+                                #{d.id} {d.name}
+                                {d.phone ? ` — ${d.phone}` : ""}
+                                {d.address ? ` — ${d.address}` : ""}
+                              </li>
+                            ))}
+                          </ul>
+                          <p className="text-muted-foreground">
+                            Search and pick the existing customer instead — duplicates split
+                            orders and balances across two accounts.
+                          </p>
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            size="sm"
+                            className="h-7 text-xs"
+                            data-testid="button-create-duplicate-anyway-inline"
+                            onClick={() => {
+                              newCustomerDupOverrideRef.current = true;
+                              handleCreateCustomer();
+                            }}
+                          >
+                            Create anyway
+                          </Button>
+                        </div>
+                      )}
                       <div className="grid grid-cols-2 gap-3">
                         <div>
                           <Label htmlFor="new-customer-phone" className="text-xs">Phone</Label>
