@@ -1,7 +1,10 @@
 // Read-only ledger integrity check (spec 2026-08-02). Run any time:
 //   npm run integrity-check
 // Checks: (1) active orders' ledger entries match order totals,
-// (2) cancelled orders net to zero, (3) stored balances match the ledger.
+// (2) cancelled orders net to zero, (3) stored balances match the ledger,
+// (4) business-looking customer names typed as non-business (spec 2026-08-09:
+//     "Swiftcure Pharmacy" typed Consumer bypassed the wholesale Credit guard,
+//     so its Bank/QR order silently booked a phantom payment).
 // NEVER writes to the database.
 
 import { createClient } from '@supabase/supabase-js';
@@ -51,14 +54,33 @@ async function fetchAll<T>(table: string, select: string): Promise<T[]> {
 
 type OrderRow = { id: number; status: string; payment_status: string; total_amount: number; customer_id: number };
 type EntryRow = { id: number; customer_id: number; type: string; amount: number; order_id: number | null };
-type CustomerRow = { id: number; name: string; current_balance: number };
+type CustomerRow = {
+  id: number;
+  name: string;
+  current_balance: number;
+  customer_type: { name: string; is_business: boolean } | null;
+};
+
+// Name tokens that virtually always mean a business account. Word-boundary
+// matched against the lowercased name so "Marta" doesn't hit "mart".
+const BUSINESS_NAME_TOKENS = [
+  'pvt', 'ltd', 'pharmacy', 'mart', 'store', 'stores', 'gym', 'fitness',
+  'enterprises', 'enterprise', 'suppliers', 'supplier', 'traders', 'trading',
+  'grocer', 'grocery', 'supermarket', 'hospital', 'clinic', 'cafe', 'restaurant',
+  'hotel', 'academy', 'distributors', 'distributor', 'agency', 'industries',
+  'concern', 'medical', 'pasal',
+];
+const BUSINESS_NAME_RE = new RegExp(`\\b(${BUSINESS_NAME_TOKENS.join('|')})\\b`, 'i');
 
 const npr = (cents: number) => (cents / 100).toFixed(2);
 
 async function main() {
   const orders = await fetchAll<OrderRow>('orders', 'id,status,payment_status,total_amount,customer_id');
   const entries = await fetchAll<EntryRow>('ledger_entries', 'id,customer_id,type,amount,order_id');
-  const customers = await fetchAll<CustomerRow>('customers', 'id,name,current_balance');
+  const customers = await fetchAll<CustomerRow>(
+    'customers',
+    'id,name,current_balance,customer_type:customer_types(name,is_business)',
+  );
   const custName = new Map(customers.map((c) => [c.id, c.name]));
 
   const byOrder = new Map<number, EntryRow[]>();
@@ -117,7 +139,19 @@ async function main() {
     }
   }
 
-  console.log(`\nDone. New findings: ${findings}. Held (VAT verification pending, 2026-08-02): ${held}.`);
+  // Advisory only (no exit-code impact): these need a human retype decision,
+  // and a standing list must not make every future run read as failed.
+  console.log('\n=== 4. Business-looking names typed as non-business (advisory) ===');
+  let typeFlags = 0;
+  for (const c of customers) {
+    if (c.customer_type?.is_business) continue;
+    if (BUSINESS_NAME_RE.test(c.name)) {
+      typeFlags++;
+      console.log(`  [advisory] customer #${c.id} "${c.name}": type ${c.customer_type ? `"${c.customer_type.name}"` : 'none'} is not business — wholesale Credit guard will not fire for them`);
+    }
+  }
+
+  console.log(`\nDone. New findings: ${findings}. Held (VAT verification pending, 2026-08-02): ${held}. Type advisories: ${typeFlags}.`);
   if (findings > 0) process.exitCode = 1;
 }
 

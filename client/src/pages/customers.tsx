@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import { useCustomersWithAging, useAgingTotals, useCustomer, useCreateCustomer, useCreateLedgerEntry, useCustomerLedger, useUpdateCustomerType, useBulkUpdateCustomerType, useUpdateCustomerDiscount, useUpdateCustomerBillingAddress } from "@/hooks/use-customers";
 import { usualDiscountLabel } from "@/lib/usual-discount";
+import { findDuplicateCustomers, type DuplicateCandidate } from "@/lib/duplicate-customer-query";
 import { useCurrency } from "@/hooks/use-currency";
 import { useAuth } from "@/hooks/use-auth";
 import { canAccess } from "@/lib/roles";
@@ -432,6 +433,9 @@ function CreateCustomerDialog({ open, onOpenChange }: any) {
   const [typeError, setTypeError] = useState(false);
   const [usualDiscount, setUsualDiscount] = useState<string>("");
   const [billingAddress, setBillingAddress] = useState<string>("");
+  const [dupMatches, setDupMatches] = useState<DuplicateCandidate[]>([]);
+  // Ref, not state: "Create anyway" resubmits synchronously and must not race setState.
+  const dupOverrideRef = useRef(false);
   const { user } = useAuth();
   const canEditLedger = canAccess(user?.roles ?? [], "ledger-edit");
 
@@ -459,6 +463,19 @@ function CreateCustomerDialog({ open, onOpenChange }: any) {
       setTypeError(true);
       return;
     }
+    // Duplicate guard (spec 2026-08-09): block the first submit when a
+    // same-name customer exists; "Create anyway" sets the override and resubmits.
+    if (!dupOverrideRef.current) {
+      try {
+        const dups = await findDuplicateCustomers(values.name);
+        if (dups.length > 0) {
+          setDupMatches(dups);
+          return;
+        }
+      } catch {
+        // A failed duplicate lookup must never block creating a customer.
+      }
+    }
     try {
       const creditLimitInCents = Math.round(values.creditLimit * 100);
       const defaultDiscountPct = usualDiscount === '' || usualDiscount == null ? null : parseFloat(usualDiscount);
@@ -480,6 +497,8 @@ function CreateCustomerDialog({ open, onOpenChange }: any) {
       setTypeError(false);
       setUsualDiscount("");
       setBillingAddress("");
+      setDupMatches([]);
+      dupOverrideRef.current = false;
     } catch (error: any) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     }
@@ -499,11 +518,57 @@ function CreateCustomerDialog({ open, onOpenChange }: any) {
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Full Name</FormLabel>
-                  <FormControl><Input placeholder="John Doe" {...field} /></FormControl>
+                  <FormControl>
+                    <Input
+                      placeholder="John Doe"
+                      {...field}
+                      onChange={(e) => {
+                        field.onChange(e);
+                        if (dupMatches.length > 0) {
+                          setDupMatches([]);
+                          dupOverrideRef.current = false;
+                        }
+                      }}
+                    />
+                  </FormControl>
                   <FormMessage />
                 </FormItem>
               )}
             />
+            {dupMatches.length > 0 && (
+              <div
+                className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm space-y-2"
+                data-testid="duplicate-customer-warning"
+              >
+                <p className="font-medium">This customer may already exist:</p>
+                <ul className="space-y-0.5">
+                  {dupMatches.map((d) => (
+                    <li key={d.id}>
+                      #{d.id} {d.name}
+                      {d.phone ? ` — ${d.phone}` : ""}
+                      {d.address ? ` — ${d.address}` : ""}
+                    </li>
+                  ))}
+                </ul>
+                <p className="text-muted-foreground">
+                  Use the existing customer instead of creating a duplicate — orders and
+                  balances split across two accounts. Only create a new one for a genuinely
+                  different customer (e.g. a separate branch: give it a distinct name).
+                </p>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  data-testid="button-create-duplicate-anyway"
+                  onClick={() => {
+                    dupOverrideRef.current = true;
+                    form.handleSubmit(onSubmit)();
+                  }}
+                >
+                  Create anyway
+                </Button>
+              </div>
+            )}
             {(customerTypes || []).length > 0 && (
               <div className="space-y-2">
                 <label className="text-sm font-medium">Customer Type *</label>
