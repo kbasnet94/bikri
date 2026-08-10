@@ -62,6 +62,9 @@ import { OrderLocationControl, CustomerLocationPicker, isD2CCustomer, ORDER_CHAN
 import { useCustomerLocations } from "@/hooks/use-customer-locations";
 import { useLastOrderMeta } from "@/hooks/use-orders";
 import { MapPin } from "lucide-react";
+import DraftsTab from "@/components/drafts-tab";
+import { useDraftOrders, useReviewDraft } from "@/hooks/use-draft-orders";
+import type { OrderPrefill } from "@/lib/draft-mapping";
 
 const ORDER_STATUSES = [
   { value: "new", label: "New" },
@@ -133,6 +136,33 @@ export default function Orders() {
   const updateStatus = useUpdateOrderStatus();
   const { toast } = useToast();
   const { formatCurrency } = useCurrency();
+
+  // Drafts tab (IG order-bot review queue). Confirming a draft opens the
+  // existing CreateOrderDialog pre-filled instead of writing an order
+  // directly — order creation still only ever happens through that dialog.
+  const { data: pendingDrafts } = useDraftOrders();
+  const reviewDraft = useReviewDraft();
+  const [draftPrefill, setDraftPrefill] = useState<OrderPrefill | null>(null);
+  const [reviewingDraftId, setReviewingDraftId] = useState<number | null>(null);
+
+  const handleConfirmDraft = (prefill: OrderPrefill, draftId: number) => {
+    setDraftPrefill(prefill);
+    setReviewingDraftId(draftId);
+    setIsCreateOpen(true);
+  };
+
+  const handleOrderCreatedFromDraft = async (order: any) => {
+    if (reviewingDraftId != null) {
+      try {
+        await reviewDraft.mutateAsync({ id: reviewingDraftId, status: "confirmed", bikriOrderId: order.id });
+        toast({ title: `Draft #${reviewingDraftId} confirmed as order #${order.id}` });
+      } catch (error: any) {
+        toast({ title: "Order created, but failed to mark draft confirmed", description: error.message, variant: "destructive" });
+      }
+    }
+    setDraftPrefill(null);
+    setReviewingDraftId(null);
+  };
 
   // Debounce search input
   useEffect(() => {
@@ -374,10 +404,10 @@ export default function Orders() {
       </div>
 
       <Tabs value={activeTab} onValueChange={(val) => { setActiveTab(val); setSelectedOrders(new Set()); }} className="w-full">
-        <TabsList className="grid w-full grid-cols-6 h-auto p-1">
+        <TabsList className="grid w-full grid-cols-7 h-auto p-1">
           {ORDER_STATUSES.map((status) => (
-            <TabsTrigger 
-              key={status.value} 
+            <TabsTrigger
+              key={status.value}
               value={status.value}
               className="flex flex-col gap-1 py-2 px-3 data-[state=active]:shadow-sm"
               data-testid={`tab-${status.value}`}
@@ -388,6 +418,23 @@ export default function Orders() {
               </span>
             </TabsTrigger>
           ))}
+          <TabsTrigger
+            value="drafts"
+            className="flex flex-col gap-1 py-2 px-3 data-[state=active]:shadow-sm"
+            data-testid="tab-drafts"
+          >
+            <span className="text-xs sm:text-sm font-medium flex items-center gap-1">
+              Drafts
+              {(pendingDrafts?.length ?? 0) > 0 && (
+                <Badge variant="outline" className="h-4 px-1.5 text-[10px] bg-primary/10 text-primary border-primary/30">
+                  {pendingDrafts!.length}
+                </Badge>
+              )}
+            </span>
+            <span className="text-[10px] sm:text-xs text-muted-foreground">
+              ({(pendingDrafts?.length ?? 0).toLocaleString()})
+            </span>
+          </TabsTrigger>
         </TabsList>
 
         {ORDER_STATUSES.map((status) => (
@@ -586,9 +633,26 @@ export default function Orders() {
             </AlertDialog>
           </TabsContent>
         ))}
+
+        <TabsContent value="drafts" className="mt-4">
+          <DraftsTab onConfirm={handleConfirmDraft} />
+        </TabsContent>
       </Tabs>
 
-      <CreateOrderDialog open={isCreateOpen} onOpenChange={setIsCreateOpen} />
+      <CreateOrderDialog
+        open={isCreateOpen}
+        onOpenChange={(open) => {
+          setIsCreateOpen(open);
+          // Dialog dismissed without completing the order: drop the draft
+          // linkage so a later "New Order" click doesn't inherit it.
+          if (!open) {
+            setDraftPrefill(null);
+            setReviewingDraftId(null);
+          }
+        }}
+        prefill={draftPrefill}
+        onCreated={handleOrderCreatedFromDraft}
+      />
       <BulkOrderUploadDialog open={isBulkOrderOpen} onOpenChange={setIsBulkOrderOpen} />
       <EditOrderDialog order={editingOrder} open={!!editingOrder} onOpenChange={(open) => !open && setEditingOrder(null)} />
     </div>
@@ -1304,7 +1368,17 @@ function ProductRow({
   );
 }
 
-function CreateOrderDialog({ open, onOpenChange }: any) {
+function CreateOrderDialog({
+  open,
+  onOpenChange,
+  prefill,
+  onCreated,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  prefill?: OrderPrefill | null;
+  onCreated?: (order: any) => void;
+}) {
   const [step, setStep] = useState(1);
   const [customerId, setCustomerId] = useState<string>("");
   const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
@@ -1540,6 +1614,43 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
     return item.product.stock_quantity;
   };
 
+  // Confirming a draft (Drafts tab) opens this dialog with a prefill instead
+  // of an existing customerId — drafts never carry a Bikri customer_id, so
+  // they always go through the new-customer form. Only applies once per
+  // open (guarded by customerId/cart still being empty) so it doesn't
+  // clobber the user mid-edit, and re-applies if it first ran before
+  // products had loaded (needed to resolve prefill.items -> cart entries).
+  useEffect(() => {
+    if (!open || !prefill) return;
+    if (customerId || cart.length > 0) return;
+
+    openNewCustomerForm();
+    setNewCustomerName(prefill.newCustomerName);
+    setNewCustomerPhone(prefill.newCustomerPhone);
+    setNewCustomerAddress(prefill.newCustomerAddress);
+    setPaymentStatus(prefill.paymentStatus);
+    setPaymentTouched(true);
+    setOrderChannel(prefill.orderChannel);
+
+    if (products) {
+      const prefillCart = prefill.items
+        .map((pi) => {
+          const product = (products as any[]).find((p) => p.id === pi.productId);
+          if (!product) return null;
+          return {
+            productId: pi.productId,
+            variantId: undefined,
+            quantity: pi.quantity,
+            discountPercent: pi.discountPercent,
+            product,
+          };
+        })
+        .filter((x): x is NonNullable<typeof x> => x !== null);
+      if (prefillCart.length > 0) setCart(prefillCart);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, prefill, products, customerId, cart.length]);
+
   const subtotal = cart.reduce((sum, item) => {
     const price = getItemPrice(item);
     const discountAmount = Math.round(price * item.discountPercent / 100);
@@ -1597,7 +1708,9 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
       } else {
         toast({ title: "Order created successfully!", description: `Order #${newOrder.id} has been created.` });
       }
-      
+
+      onCreated?.(newOrder);
+
       // Reset state
       setStep(1);
       setCustomerId("");
