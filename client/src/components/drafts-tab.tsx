@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useDraftOrders, useReviewDraft, useDraftEvidenceUrls } from "@/hooks/use-draft-orders";
+import { useDraftOrders, useReviewDraft, useDraftEvidenceUrls, DraftAlreadyReviewedError } from "@/hooks/use-draft-orders";
 import { useProducts } from "@/hooks/use-products";
 import { useCurrency } from "@/hooks/use-currency";
 import { mapDraftToOrderPrefill, isPrefillError, type DraftOrderRow, type OrderPrefill } from "@/lib/draft-mapping";
@@ -74,7 +74,15 @@ function DraftCard({ draft, onConfirm }: DraftCardProps) {
       await reviewDraft.mutateAsync({ id: draft.id, status: "rejected", rejectReason: rejectReason.trim() });
       toast({ title: `Draft #${draft.id} rejected` });
     } catch (error: any) {
-      toast({ title: "Failed to reject draft", description: error.message, variant: "destructive" });
+      if (error instanceof DraftAlreadyReviewedError) {
+        toast({
+          title: "Already reviewed by someone else",
+          description: `Draft #${draft.id} was reviewed elsewhere before this reject landed — refresh the tab before acting on it again.`,
+          variant: "destructive",
+        });
+      } else {
+        toast({ title: "Failed to reject draft", description: error.message, variant: "destructive" });
+      }
     }
   };
 

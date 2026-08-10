@@ -46,11 +46,29 @@ export interface ReviewDraftInput {
   bikriOrderId?: number;
 }
 
+// Thrown when the conditional update in useReviewDraft matches zero rows —
+// i.e. someone else (another staff member, or a second click) already
+// reviewed this draft between this tab loading it and this write landing.
+// Distinguished from a generic Error so callers can show a pointed message,
+// and so a Confirm-path caller knows to warn about a possible duplicate
+// order (the create-order side already ran before this write is attempted).
+export class DraftAlreadyReviewedError extends Error {
+  constructor(id: number) {
+    super(`Draft #${id} was already reviewed by someone else.`);
+    this.name = 'DraftAlreadyReviewedError';
+  }
+}
+
 export function useReviewDraft() {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async ({ id, status, rejectReason, bikriOrderId }: ReviewDraftInput) => {
+      // Guard against a double-review race (two tabs/staff acting on the
+      // same draft, or a duplicate click): only flip a draft that is still
+      // 'pending'. If another write already moved it off 'pending', this
+      // update matches zero rows and we must not silently no-op — the
+      // caller needs to know so it can warn about a possible duplicate order.
       const { data, error } = await supabase
         .from('draft_orders')
         .update({
@@ -60,11 +78,14 @@ export function useReviewDraft() {
           reviewed_at: new Date().toISOString(),
         })
         .eq('id', id)
-        .select()
-        .single();
+        .eq('status', 'pending')
+        .select();
 
       if (error) throw error;
-      return data as DraftOrderRow;
+      if (!data || data.length === 0) {
+        throw new DraftAlreadyReviewedError(id);
+      }
+      return data[0] as DraftOrderRow;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['draft-orders'] });

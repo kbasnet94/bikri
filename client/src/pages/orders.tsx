@@ -63,7 +63,7 @@ import { useCustomerLocations } from "@/hooks/use-customer-locations";
 import { useLastOrderMeta } from "@/hooks/use-orders";
 import { MapPin } from "lucide-react";
 import DraftsTab from "@/components/drafts-tab";
-import { useDraftOrders, useReviewDraft } from "@/hooks/use-draft-orders";
+import { useDraftOrders, useReviewDraft, DraftAlreadyReviewedError } from "@/hooks/use-draft-orders";
 import type { OrderPrefill } from "@/lib/draft-mapping";
 
 const ORDER_STATUSES = [
@@ -157,7 +157,20 @@ export default function Orders() {
         await reviewDraft.mutateAsync({ id: reviewingDraftId, status: "confirmed", bikriOrderId: order.id });
         toast({ title: `Draft #${reviewingDraftId} confirmed as order #${order.id}` });
       } catch (error: any) {
-        toast({ title: "Order created, but failed to mark draft confirmed", description: error.message, variant: "destructive" });
+        // The order (order.id) was already created by this point — this
+        // only failed to mark the SOURCE DRAFT confirmed. If someone else
+        // reviewed the same draft in the meantime, order.id is very likely
+        // a duplicate of whatever order that other review produced; say so
+        // explicitly rather than a generic failure toast.
+        if (error instanceof DraftAlreadyReviewedError) {
+          toast({
+            title: "Possible duplicate order",
+            description: `Order #${order.id} was created, but draft #${reviewingDraftId} was already reviewed by someone else — check for a duplicate before dispatching.`,
+            variant: "destructive",
+          });
+        } else {
+          toast({ title: "Order created, but failed to mark draft confirmed", description: error.message, variant: "destructive" });
+        }
       }
     }
     setDraftPrefill(null);
@@ -1616,23 +1629,45 @@ function CreateOrderDialog({
 
   // Confirming a draft (Drafts tab) opens this dialog with a prefill instead
   // of an existing customerId — drafts never carry a Bikri customer_id, so
-  // they always go through the new-customer form. Only applies once per
-  // open (guarded by customerId/cart still being empty) so it doesn't
-  // clobber the user mid-edit, and re-applies if it first ran before
-  // products had loaded (needed to resolve prefill.items -> cart entries).
+  // they always go through the new-customer form.
+  //
+  // Application must be strictly one-shot per (open dialog, prefill) pair.
+  // An earlier version guarded on `customerId || cart.length > 0`, which
+  // re-fired and silently RE-APPLIED THE ORIGINAL BOT DATA if staff emptied
+  // the cart mid-review to fix a bad item — clobbering their correction.
+  // These refs instead track "have we already applied this exact prefill
+  // object" independent of the form's current contents, so editing (incl.
+  // clearing) the cart/fields after prefill lands never triggers a re-apply.
+  // The cart half is tracked separately because it needs `products` to
+  // resolve productId -> full Product, which may not be loaded on the first
+  // pass; it applies once as soon as products arrives, and never again.
+  const appliedPrefillFieldsRef = useRef<OrderPrefill | null>(null);
+  const appliedPrefillCartRef = useRef<OrderPrefill | null>(null);
+
   useEffect(() => {
-    if (!open || !prefill) return;
-    if (customerId || cart.length > 0) return;
+    if (!open) {
+      // Dialog closed: forfeit prefill session state so a future open
+      // (even with the same prefill object, e.g. re-opened for the same
+      // draft) re-applies cleanly rather than being treated as already-done.
+      appliedPrefillFieldsRef.current = null;
+      appliedPrefillCartRef.current = null;
+      return;
+    }
+    if (!prefill) return;
 
-    openNewCustomerForm();
-    setNewCustomerName(prefill.newCustomerName);
-    setNewCustomerPhone(prefill.newCustomerPhone);
-    setNewCustomerAddress(prefill.newCustomerAddress);
-    setPaymentStatus(prefill.paymentStatus);
-    setPaymentTouched(true);
-    setOrderChannel(prefill.orderChannel);
+    if (appliedPrefillFieldsRef.current !== prefill) {
+      appliedPrefillFieldsRef.current = prefill;
+      openNewCustomerForm();
+      setNewCustomerName(prefill.newCustomerName);
+      setNewCustomerPhone(prefill.newCustomerPhone);
+      setNewCustomerAddress(prefill.newCustomerAddress);
+      setPaymentStatus(prefill.paymentStatus);
+      setPaymentTouched(true);
+      setOrderChannel(prefill.orderChannel);
+    }
 
-    if (products) {
+    if (appliedPrefillCartRef.current !== prefill && products) {
+      appliedPrefillCartRef.current = prefill;
       const prefillCart = prefill.items
         .map((pi) => {
           const product = (products as any[]).find((p) => p.id === pi.productId);
@@ -1649,7 +1684,7 @@ function CreateOrderDialog({
       if (prefillCart.length > 0) setCart(prefillCart);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, prefill, products, customerId, cart.length]);
+  }, [open, prefill, products]);
 
   const subtotal = cart.reduce((sum, item) => {
     const price = getItemPrice(item);
