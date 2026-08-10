@@ -13,6 +13,12 @@ import { AlertCircle, CheckCircle2, ImageOff, Loader2, ShieldCheck } from "lucid
 
 const NEPALI_PHONE_RE = /^9[678]\d{8}$/;
 
+// The IG bot quotes consumers a total that INCLUDES Rs 100 delivery
+// (e.g. Rs 2,050 for one box). The recomputed items total above excludes
+// delivery, so staff need the delivery line to compare against the bot's
+// quote. Display-only — order-total math is untouched.
+const CONSUMER_DELIVERY_FEE_CENTS = 10000;
+
 function lastCodLine(transcript: string): string | null {
   const lines = (transcript || "").split(/\r?\n/);
   for (let i = lines.length - 1; i >= 0; i--) {
@@ -119,6 +125,9 @@ function DraftCard({ draft, onConfirm }: DraftCardProps) {
         <div className="text-right">
           <div className="text-xs text-muted-foreground">Recomputed total</div>
           <div className="font-mono font-medium">{formatCurrency(recomputedTotal)}</div>
+          <div className="text-xs text-muted-foreground" data-testid={`draft-delivery-${draft.id}`}>
+            + {formatCurrency(CONSUMER_DELIVERY_FEE_CENTS)} delivery
+          </div>
         </div>
       </div>
 
@@ -235,10 +244,6 @@ function DraftCard({ draft, onConfirm }: DraftCardProps) {
   );
 }
 
-export function draftTabPendingCount(drafts: DraftOrderRow[] | undefined): number {
-  return drafts?.length ?? 0;
-}
-
 export default function DraftsTab({
   onConfirm,
 }: {
@@ -250,10 +255,19 @@ export default function DraftsTab({
     return <div className="text-center py-12 text-muted-foreground">Loading drafts...</div>;
   }
 
-  // draft_orders may not exist yet in every environment the bot hasn't
-  // shipped to; use-draft-orders.ts already swallows the missing-table
-  // error into an empty array, but render gracefully either way.
-  if (isError || !drafts || drafts.length === 0) {
+  // use-draft-orders.ts already swallows the missing-table codes (42P01 /
+  // PGRST205) into an empty array, so isError here means a REAL query
+  // failure (network, RLS, etc.) — say so instead of pretending the queue
+  // is empty.
+  if (isError) {
+    return (
+      <div className="text-center py-12 text-muted-foreground" data-testid="drafts-load-error">
+        Couldn't load drafts — check connection.
+      </div>
+    );
+  }
+
+  if (!drafts || drafts.length === 0) {
     return (
       <div className="text-center py-12 text-muted-foreground">
         No pending drafts.
