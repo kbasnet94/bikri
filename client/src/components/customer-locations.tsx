@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
+import { useCanWrite, READ_ONLY_HINT } from "@/hooks/use-can-write";
 import { canAccess } from "@/lib/roles";
 import { isBusinessCustomer } from "@/lib/payment-defaults";
 import {
@@ -274,6 +275,7 @@ export function CustomerLocationPicker({
  * to, plus the D2C channel badge. Quiet metadata next to VAT/Pro Forma.
  */
 export function OrderLocationControl({ order }: { order: any }) {
+  const canWrite = useCanWrite();
   const setOrderLocation = useSetOrderLocation();
   const { toast } = useToast();
   const [isEditing, setIsEditing] = useState(false);
@@ -327,8 +329,10 @@ export function OrderLocationControl({ order }: { order: any }) {
         )}
         <button
           type="button"
-          className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground flex-shrink-0 text-xs underline underline-offset-2 decoration-dotted"
+          className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground flex-shrink-0 text-xs underline underline-offset-2 decoration-dotted disabled:opacity-50 disabled:cursor-not-allowed"
           onClick={(e) => { e.stopPropagation(); setIsEditing(true); }}
+          disabled={!canWrite}
+          title={canWrite ? undefined : READ_ONLY_HINT}
           data-testid={`button-edit-order-location-${order.id}`}
         >
           change
@@ -340,8 +344,10 @@ export function OrderLocationControl({ order }: { order: any }) {
   return (
     <button
       type="button"
-      className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-primary transition-colors"
+      className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
       onClick={(e) => { e.stopPropagation(); setIsEditing(true); }}
+      disabled={!canWrite}
+      title={canWrite ? undefined : READ_ONLY_HINT}
       data-testid={`button-set-order-location-${order.id}`}
     >
       <MapPin className="w-3.5 h-3.5" />
