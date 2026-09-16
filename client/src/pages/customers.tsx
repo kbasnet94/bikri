@@ -4,6 +4,7 @@ import { usualDiscountLabel } from "@/lib/usual-discount";
 import { findDuplicateCustomers, type DuplicateCandidate } from "@/lib/duplicate-customer-query";
 import { useCurrency } from "@/hooks/use-currency";
 import { useAuth } from "@/hooks/use-auth";
+import { useCanWrite, READ_ONLY_HINT, READ_ONLY_CLASS } from "@/hooks/use-can-write";
 import { canAccess } from "@/lib/roles";
 import ExcelJS from "exceljs";
 import { supabase } from "@/lib/supabase";
@@ -54,6 +55,7 @@ import { findUntypedRows } from "@/lib/csv-customer-types";
 
 export default function Customers() {
   const { user } = useAuth();
+  const canWrite = useCanWrite();
   const canEditLedger = canAccess(user?.roles ?? [], "ledger-edit");
   const [search, setSearch] = useState("");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -144,16 +146,16 @@ export default function Customers() {
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           {canEditLedger && (
-            <Button variant="outline" onClick={() => setIsBulkLedgerOpen(true)} data-testid="button-bulk-ledger">
+            <Button variant="outline" onClick={() => setIsBulkLedgerOpen(true)} disabled={!canWrite} title={canWrite ? undefined : READ_ONLY_HINT} className={READ_ONLY_CLASS} data-testid="button-bulk-ledger">
               <Upload className="w-4 h-4 mr-2" />
               Upload Ledger
             </Button>
           )}
-          <Button variant="outline" onClick={() => setIsBulkUploadOpen(true)} data-testid="button-bulk-customers">
+          <Button variant="outline" onClick={() => setIsBulkUploadOpen(true)} disabled={!canWrite} title={canWrite ? undefined : READ_ONLY_HINT} className={READ_ONLY_CLASS} data-testid="button-bulk-customers">
             <Upload className="w-4 h-4 mr-2" />
             Upload Customers
           </Button>
-          <Button onClick={() => setIsCreateOpen(true)} className="shadow-lg shadow-primary/25">
+          <Button onClick={() => setIsCreateOpen(true)} disabled={!canWrite} title={canWrite ? undefined : READ_ONLY_HINT} className={cn("shadow-lg shadow-primary/25", READ_ONLY_CLASS)}>
             <Plus className="w-4 h-4 mr-2" />
             Add Customer
           </Button>
@@ -249,6 +251,7 @@ export default function Customers() {
             variant={selectMode ? "secondary" : "outline"}
             size="sm"
             onClick={() => { setSelectMode(!selectMode); setSelectedIds(new Set()); }}
+            disabled={!canWrite}
             data-testid="button-select-mode"
           >
             {selectMode ? "Done" : "Select"}
@@ -343,6 +346,7 @@ export default function Customers() {
                       <Select
                         value={customer.customer_type_id ? String(customer.customer_type_id) : ""}
                         onValueChange={(v) => handleQuickSetType(customer.id, parseInt(v))}
+                        disabled={!canWrite}
                       >
                         <SelectTrigger
                           className={cn(
@@ -730,6 +734,7 @@ function CustomerDetailsDialog({ customer: customerProp, open, onOpenChange }: a
   const [selectedFiscalYear, setSelectedFiscalYear] = useState<string>(String(getCurrentFiscalYear()));
   const { formatCurrency, formatCurrencyShort, symbol } = useCurrency();
   const { user } = useAuth();
+  const canWrite = useCanWrite();
   const canEditLedger = canAccess(user?.roles ?? [], "ledger-edit");
   const ledgerEndRef = useRef<HTMLDivElement>(null);
 
@@ -988,6 +993,7 @@ function CustomerDetailsDialog({ customer: customerProp, open, onOpenChange }: a
                   <Select
                     value={customer.customer_type_id ? String(customer.customer_type_id) : ""}
                     onValueChange={(v) => handleSetType(parseInt(v))}
+                    disabled={!canWrite}
                   >
                     <SelectTrigger
                       className={cn(

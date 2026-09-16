@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
-import { canAccess, type Role } from "@/lib/roles";
+import { canAccess, ALL_ROLES, ROLE_LABELS, ROLE_DESCRIPTIONS, type Role } from "@/lib/roles";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -38,7 +38,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-const ALL_ROLES: Role[] = ["admin", "operations", "sales", "accounts"];
 
 interface BusinessUser {
   id: string; // user_id
@@ -537,7 +536,7 @@ export default function Account() {
                               onCheckedChange={(checked) => toggleNewUserRole(role, checked === true)}
                               data-testid={`checkbox-new-user-role-${role}`}
                             />
-                            {role.charAt(0).toUpperCase() + role.slice(1)}
+                            <span title={ROLE_DESCRIPTIONS[role]}>{ROLE_LABELS[role]}</span>
                           </label>
                         ))}
                       </div>
@@ -602,7 +601,7 @@ export default function Account() {
                           {member.roles.length > 0 ? (
                             member.roles.map((role) => (
                               <Badge key={role} variant="secondary" className="text-xs">
-                                {role.charAt(0).toUpperCase() + role.slice(1)}
+                                <span title={ROLE_DESCRIPTIONS[role]}>{ROLE_LABELS[role]}</span>
                               </Badge>
                             ))
                           ) : (
@@ -648,7 +647,7 @@ export default function Account() {
                                         }}
                                         data-testid={`checkbox-edit-role-${member.id}-${role}`}
                                       />
-                                      {role.charAt(0).toUpperCase() + role.slice(1)}
+                                      <span title={ROLE_DESCRIPTIONS[role]}>{ROLE_LABELS[role]}</span>
                                     </label>
                                   );
                                 })}

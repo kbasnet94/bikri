@@ -7,6 +7,7 @@ import { useProductVariants, useCreateProductVariant, useUpdateProductVariant, u
 import type { ProductVariant } from "@/hooks/use-product-variants";
 import { useCurrency } from "@/hooks/use-currency";
 import { Button } from "@/components/ui/button";
+import { useCanWrite, READ_ONLY_HINT, READ_ONLY_CLASS } from "@/hooks/use-can-write";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
@@ -58,6 +59,7 @@ const centsToDecimal = (cents: number) => cents / 100;
 const decimalToCents = (decimal: number) => Math.round(decimal * 100);
 
 export default function Inventory() {
+  const canWrite = useCanWrite();
   const [search, setSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -105,7 +107,7 @@ export default function Inventory() {
           <h1 className="text-3xl font-display font-bold">Inventory</h1>
           <p className="text-muted-foreground">Manage your products and stock levels.</p>
         </div>
-        <Button onClick={() => setIsCreateOpen(true)} className="shadow-lg shadow-primary/25">
+        <Button onClick={() => setIsCreateOpen(true)} disabled={!canWrite} title={canWrite ? undefined : READ_ONLY_HINT} className={cn("shadow-lg shadow-primary/25", READ_ONLY_CLASS)}>
           <Plus className="w-4 h-4 mr-2" />
           Add Product
         </Button>
@@ -229,6 +231,7 @@ export default function Inventory() {
                               variant="ghost" 
                               size="icon" 
                               onClick={() => { setRecordStockProduct(product); setRecordStockVariant(null); }}
+                              disabled={!canWrite}
                               title="Record Stock"
                               data-testid={`button-record-stock-${product.id}`}
                             >
@@ -244,10 +247,10 @@ export default function Inventory() {
                           >
                             <History className="w-4 h-4 text-muted-foreground hover:text-primary" />
                           </Button>
-                          <Button variant="ghost" size="icon" onClick={() => setEditingProduct(product)} data-testid={`button-edit-product-${product.id}`}>
+                          <Button variant="ghost" size="icon" onClick={() => setEditingProduct(product)} disabled={!canWrite} data-testid={`button-edit-product-${product.id}`}>
                             <Pencil className="w-4 h-4 text-muted-foreground hover:text-primary" />
                           </Button>
-                          <Button variant="ghost" size="icon" onClick={() => handleDelete(product.id)} data-testid={`button-delete-product-${product.id}`}>
+                          <Button variant="ghost" size="icon" onClick={() => handleDelete(product.id)} disabled={!canWrite} data-testid={`button-delete-product-${product.id}`}>
                             <Trash2 className="w-4 h-4 text-muted-foreground hover:text-destructive" />
                           </Button>
                         </div>
@@ -278,6 +281,7 @@ export default function Inventory() {
                               variant="ghost"
                               size="icon"
                               onClick={() => { setRecordStockProduct(product); setRecordStockVariant(variant); }}
+                              disabled={!canWrite}
                               title="Record Stock"
                             >
                               <Package className="w-4 h-4 text-muted-foreground hover:text-primary" />

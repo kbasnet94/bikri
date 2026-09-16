@@ -31,6 +31,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   ];
 
   const roles = user?.roles ?? [];
+  const canWrite = canAccess(roles, "write");
   const visibleItems = navItems.filter((i) => canAccess(roles, NAV_RESOURCES[i.href]));
 
   const NavContent = () => (
@@ -71,6 +72,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           <div className="flex-1 min-w-0">
             <p className="font-semibold text-sm truncate">{user?.firstName} {user?.lastName}</p>
             <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
+            {!canWrite && (
+              <span className="inline-block mt-1 text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30" data-testid="badge-view-only">
+                View only
+              </span>
+            )}
           </div>
           <ThemeToggle />
         </div>
