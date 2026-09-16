@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
-import { canAccess, type Role } from "@/lib/roles";
+import { useCanWrite, READ_ONLY_HINT } from "@/hooks/use-can-write";
+import { canAccess, ALL_ROLES, ROLE_LABELS, ROLE_DESCRIPTIONS, type Role } from "@/lib/roles";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -38,7 +39,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-const ALL_ROLES: Role[] = ["admin", "operations", "sales", "accounts"];
 
 interface BusinessUser {
   id: string; // user_id
@@ -537,7 +537,7 @@ export default function Account() {
                               onCheckedChange={(checked) => toggleNewUserRole(role, checked === true)}
                               data-testid={`checkbox-new-user-role-${role}`}
                             />
-                            {role.charAt(0).toUpperCase() + role.slice(1)}
+                            <span title={ROLE_DESCRIPTIONS[role]}>{ROLE_LABELS[role]}</span>
                           </label>
                         ))}
                       </div>
@@ -602,7 +602,7 @@ export default function Account() {
                           {member.roles.length > 0 ? (
                             member.roles.map((role) => (
                               <Badge key={role} variant="secondary" className="text-xs">
-                                {role.charAt(0).toUpperCase() + role.slice(1)}
+                                <span title={ROLE_DESCRIPTIONS[role]}>{ROLE_LABELS[role]}</span>
                               </Badge>
                             ))
                           ) : (
@@ -648,7 +648,7 @@ export default function Account() {
                                         }}
                                         data-testid={`checkbox-edit-role-${member.id}-${role}`}
                                       />
-                                      {role.charAt(0).toUpperCase() + role.slice(1)}
+                                      <span title={ROLE_DESCRIPTIONS[role]}>{ROLE_LABELS[role]}</span>
                                     </label>
                                   );
                                 })}
@@ -685,6 +685,7 @@ export default function Account() {
 }
 
 function CustomerTypesCard() {
+  const canWrite = useCanWrite();
   const { data: customerTypes, isLoading } = useCustomerTypes();
   const createType = useCreateCustomerType();
   const deleteType = useDeleteCustomerType();
@@ -736,11 +737,13 @@ function CustomerTypesCard() {
             value={newTypeName}
             onChange={(e) => setNewTypeName(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+            disabled={!canWrite}
+            title={canWrite ? undefined : READ_ONLY_HINT}
             data-testid="input-new-customer-type"
           />
           <Button
             onClick={handleAdd}
-            disabled={!newTypeName.trim() || createType.isPending}
+            disabled={!canWrite || !newTypeName.trim() || createType.isPending}
             size="sm"
             data-testid="button-add-customer-type"
           >
@@ -779,18 +782,21 @@ function CustomerTypesCard() {
                     }
                   }}
                   className={cn(
-                    "ml-1 text-[10px] uppercase tracking-wide rounded px-1.5 py-0.5 border",
+                    "ml-1 text-[10px] uppercase tracking-wide rounded px-1.5 py-0.5 border disabled:opacity-50 disabled:cursor-not-allowed",
                     type.is_business
                       ? "bg-primary/10 text-primary border-primary/30"
                       : "text-muted-foreground border-border"
                   )}
+                  disabled={!canWrite}
                   data-testid={`toggle-business-${type.id}`}
                 >
                   {type.is_business ? "Wholesale" : "Retail/D2C"}
                 </button>
                 <button
                   onClick={() => handleDelete(type.id, type.name)}
-                  className="ml-1 hover:text-destructive transition-colors"
+                  disabled={!canWrite}
+                  title={canWrite ? undefined : READ_ONLY_HINT}
+                  className="ml-1 hover:text-destructive transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   data-testid={`button-delete-customer-type-${type.id}`}
                 >
                   <X className="h-3 w-3" />

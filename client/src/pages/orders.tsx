@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { useProducts } from "@/hooks/use-products";
 import { useCurrency } from "@/hooks/use-currency";
 import { useAuth } from "@/hooks/use-auth";
+import { useCanWrite, READ_ONLY_HINT, READ_ONLY_CLASS } from "@/hooks/use-can-write";
 import { useCustomerTypes } from "@/hooks/use-customer-types";
 import { useCategories } from "@/hooks/use-categories";
 import { supabase } from "@/lib/supabase";
@@ -115,6 +116,7 @@ function getStatusLabel(status: string) {
 }
 
 export default function Orders() {
+  const canWrite = useCanWrite();
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isBulkOrderOpen, setIsBulkOrderOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<string>("new");
@@ -275,11 +277,11 @@ export default function Orders() {
           <p className="text-muted-foreground">Track and fulfill customer orders.</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <Button variant="outline" onClick={() => setIsBulkOrderOpen(true)} data-testid="button-bulk-orders">
+          <Button variant="outline" onClick={() => setIsBulkOrderOpen(true)} disabled={!canWrite} title={canWrite ? undefined : READ_ONLY_HINT} className={READ_ONLY_CLASS} data-testid="button-bulk-orders">
             <Upload className="w-4 h-4 mr-2" />
             Upload Orders
           </Button>
-          <Button onClick={() => setIsCreateOpen(true)} className="shadow-lg shadow-primary/25" data-testid="button-new-order">
+          <Button onClick={() => setIsCreateOpen(true)} disabled={!canWrite} title={canWrite ? undefined : READ_ONLY_HINT} className={cn("shadow-lg shadow-primary/25", READ_ONLY_CLASS)} data-testid="button-new-order">
             <Plus className="w-4 h-4 mr-2" />
             New Order
           </Button>
@@ -400,6 +402,7 @@ export default function Orders() {
                       <Checkbox
                         checked={allSelected ? true : someSelected ? "indeterminate" : false}
                         onCheckedChange={() => toggleSelectAll(tabOrderIds)}
+                        disabled={!canWrite}
                         aria-label="Select all orders on this page"
                         data-testid="checkbox-select-all"
                       />
@@ -435,6 +438,7 @@ export default function Orders() {
                               <Checkbox
                                 checked={isSelected}
                                 onCheckedChange={() => toggleSelect(order.id)}
+                                disabled={!canWrite}
                                 aria-label={`Select order ${order.id}`}
                                 data-testid={`checkbox-order-${order.id}`}
                               />
@@ -462,6 +466,8 @@ export default function Orders() {
                                   variant="ghost" 
                                   className="h-8 w-8" 
                                   onClick={(e) => { e.stopPropagation(); setEditingOrder(order); }}
+                                  disabled={!canWrite}
+                                  title={canWrite ? undefined : READ_ONLY_HINT}
                                   data-testid={`button-edit-order-${order.id}`}
                                 >
                                   <Pencil className="w-4 h-4" />
@@ -598,6 +604,7 @@ export default function Orders() {
 function PaymentStatusCell({ order }: { order: any }) {
   const updatePaymentStatus = useUpdatePaymentStatus();
   const { toast } = useToast();
+  const canWrite = useCanWrite();
   const paymentStatus = order.payment_status || "Credit";
   const isCredit = paymentStatus === "Credit";
 
@@ -637,7 +644,7 @@ function PaymentStatusCell({ order }: { order: any }) {
   }
 
   return (
-    <Select value={paymentStatus} onValueChange={handleChange} disabled={updatePaymentStatus.isPending}>
+    <Select value={paymentStatus} onValueChange={handleChange} disabled={updatePaymentStatus.isPending || !canWrite}>
       <SelectTrigger className="h-7 w-[90px] text-xs" data-testid={`select-payment-${order.id}`}>
         <SelectValue />
       </SelectTrigger>

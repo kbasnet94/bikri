@@ -49,7 +49,7 @@ serve(async (req: Request) => {
     });
 
     const { email, password, fullName, businessId, roles } = await req.json();
-    const VALID = ["admin", "operations", "sales", "accounts"];
+    const VALID = ["admin", "operations", "sales", "accounts", "full_viewer"];
     if (!email || !password || !businessId || !Array.isArray(roles) || roles.length === 0
         || !roles.every((r: string) => VALID.includes(r))) {
       return new Response(JSON.stringify({ error: "email, password, businessId and valid roles[] required" }),
