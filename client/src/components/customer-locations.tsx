@@ -236,35 +236,59 @@ export function CustomerLocationPicker({
     );
   }
 
+  const canAddLocation = placesConfigured() && !atCap;
+  const hasLocations = (locations?.length ?? 0) > 0;
+
   return (
-    <div className={compact ? "flex items-center gap-1.5" : "flex items-center gap-2"} onClick={(e) => e.stopPropagation()}>
-      <select
-        className="h-8 rounded-md border bg-background px-2 text-sm min-w-0 flex-1"
-        value={value?.id ?? ""}
-        onChange={(e) => {
-          const id = e.target.value;
-          onChange(id ? (locations || []).find((l) => l.id === Number(id)) ?? null : null);
-        }}
-        data-testid="select-order-location"
-      >
-        <option value="">No location</option>
-        {(locations || []).map((l) => (
-          <option key={l.id} value={l.id}>
-            {(l.label || l.formatted_address) + (isB2B && l.kind === 'dropoff' ? ' [drop-off]' : '')}
-          </option>
-        ))}
-      </select>
-      {placesConfigured() && !atCap && (
-        <Button
-          size="sm"
-          variant="outline"
-          className="h-8 flex-shrink-0"
-          onClick={() => setIsSearching(true)}
-          title="Add a new location for this customer"
-          data-testid="button-picker-new-location"
-        >
-          <Plus className="w-3.5 h-3.5" />
-        </Button>
+    <div className="min-w-0 space-y-1" onClick={(e) => e.stopPropagation()}>
+      <div className={compact ? "flex min-w-0 items-center gap-1.5" : "flex min-w-0 items-center gap-2"}>
+        {hasLocations ? (
+          <select
+            className="h-8 min-w-0 flex-1 rounded-md border bg-background px-2 text-sm"
+            value={value?.id ?? ""}
+            onChange={(e) => {
+              const id = e.target.value;
+              onChange(id ? (locations || []).find((l) => l.id === Number(id)) ?? null : null);
+            }}
+            data-testid="select-order-location"
+          >
+            <option value="">No location</option>
+            {(locations || []).map((l) => (
+              <option key={l.id} value={l.id}>
+                {(l.label || l.formatted_address) + (isB2B && l.kind === 'dropoff' ? ' [drop-off]' : '')}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-8 min-w-0 flex-1 justify-start"
+            onClick={() => setIsSearching(true)}
+            disabled={!canAddLocation}
+            data-testid="button-picker-new-location"
+          >
+            <MapPin className="mr-1.5 h-3.5 w-3.5 flex-none" />
+            <span className="truncate">Search map location</span>
+          </Button>
+        )}
+        {hasLocations && canAddLocation && (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-8 flex-shrink-0"
+            onClick={() => setIsSearching(true)}
+            title="Add a new location for this customer"
+            data-testid="button-picker-add-location"
+          >
+            <Plus className="w-3.5 h-3.5" />
+          </Button>
+        )}
+      </div>
+      {!placesConfigured() && (locations?.length ?? 0) === 0 && (
+        <p className="text-xs text-muted-foreground">Location search is unavailable in this preview.</p>
       )}
     </div>
   );

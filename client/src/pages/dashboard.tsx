@@ -351,7 +351,7 @@ export default function Dashboard() {
 
       <div className="grid gap-4 md:grid-cols-7">
         {canSeeFinancials && (
-          <Card className="col-span-4 shadow-sm">
+          <Card className="w-full min-w-0 md:col-span-4 shadow-sm">
             <CardHeader>
               <CardTitle>Sales Trend (Last 7 Days)</CardTitle>
             </CardHeader>
@@ -386,7 +386,7 @@ export default function Dashboard() {
         )}
 
         {canSeeFinancials && (
-          <Card className="col-span-3 shadow-sm">
+          <Card className="w-full min-w-0 md:col-span-3 shadow-sm">
             <CardHeader>
               <CardTitle>Recent Orders</CardTitle>
             </CardHeader>
@@ -439,8 +439,8 @@ function DashboardSkeleton() {
         {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-32 rounded-xl" />)}
       </div>
       <div className="grid gap-4 md:grid-cols-7">
-        <Skeleton className="col-span-4 h-[400px] rounded-xl" />
-        <Skeleton className="col-span-3 h-[400px] rounded-xl" />
+        <Skeleton className="h-[400px] rounded-xl md:col-span-4" />
+        <Skeleton className="h-[400px] rounded-xl md:col-span-3" />
       </div>
     </div>
   );

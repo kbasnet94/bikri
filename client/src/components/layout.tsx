@@ -120,9 +120,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       </div>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col min-h-0 overflow-auto">
+      <main className="flex-1 flex flex-col min-h-0 overflow-auto pb-[calc(4.75rem+env(safe-area-inset-bottom))] lg:pb-0">
         {/* Mobile Header */}
-        <div className="lg:hidden p-4 border-b border-border flex items-center justify-between bg-card/80 backdrop-blur-md sticky top-0 z-20">
+        <div className="lg:hidden px-4 pb-4 pt-[calc(1rem+env(safe-area-inset-top))] border-b border-border flex items-center justify-between bg-card/80 backdrop-blur-md sticky top-0 z-20">
           <div className="flex items-center gap-2">
             <Logo size="sm" />
           </div>
@@ -135,6 +135,33 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           {children}
         </div>
       </main>
+
+      {/* Mobile Bottom Navigation */}
+      <nav
+        className="fixed inset-x-0 bottom-0 z-30 grid border-t border-border bg-card/95 px-2 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] shadow-[0_-8px_24px_rgba(0,0,0,0.06)] backdrop-blur-md lg:hidden"
+        style={{ gridTemplateColumns: `repeat(${visibleItems.length}, minmax(0, 1fr))` }}
+        aria-label="Primary navigation"
+      >
+        {visibleItems.map((item) => {
+          const isActive = location === item.href;
+          return (
+            <Link key={item.href} href={item.href}>
+              <div
+                className={cn(
+                  "flex min-h-12 flex-col items-center justify-center gap-1 rounded-xl px-1 text-[10px] font-medium transition-colors",
+                  isActive
+                    ? "bg-primary/10 text-primary"
+                    : "text-muted-foreground active:bg-muted active:text-foreground",
+                )}
+                aria-current={isActive ? "page" : undefined}
+              >
+                <item.icon className={cn("h-5 w-5", isActive && "stroke-[2.5px]")} />
+                <span className="max-w-full truncate">{item.label}</span>
+              </div>
+            </Link>
+          );
+        })}
+      </nav>
     </div>
   );
 }

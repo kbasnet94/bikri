@@ -289,37 +289,37 @@ export default function Orders() {
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-3 gap-4">
-        <Card className="p-4">
-          <div className="flex items-center gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:gap-4 md:grid-cols-3">
+        <Card className="min-w-0 p-3 sm:p-4">
+          <div className="flex min-w-0 items-center gap-2 sm:gap-3">
             <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
               <ShoppingBag className="w-5 h-5 text-blue-600 dark:text-blue-400" />
             </div>
-            <div>
+            <div className="min-w-0">
               <p className="text-xs text-muted-foreground">Total Orders</p>
-              <p className="text-xl font-bold" data-testid="kpi-total-orders">{kpiData.totalOrders.toLocaleString()}</p>
+              <p className="truncate text-lg font-bold sm:text-xl" data-testid="kpi-total-orders">{kpiData.totalOrders.toLocaleString()}</p>
             </div>
           </div>
         </Card>
-        <Card className="p-4">
-          <div className="flex items-center gap-3">
+        <Card className="min-w-0 p-3 sm:p-4">
+          <div className="flex min-w-0 items-center gap-2 sm:gap-3">
             <div className="p-2 bg-green-100 dark:bg-green-900/30 rounded-lg">
               <DollarSign className="w-5 h-5 text-green-600 dark:text-green-400" />
             </div>
-            <div>
+            <div className="min-w-0">
               <p className="text-xs text-muted-foreground">Total Revenue</p>
-              <p className="text-xl font-bold" data-testid="kpi-total-revenue">{formatCurrency(kpiData.totalRevenue)}</p>
+              <p className="truncate text-lg font-bold sm:text-xl" data-testid="kpi-total-revenue">{formatCurrency(kpiData.totalRevenue)}</p>
             </div>
           </div>
         </Card>
-        <Card className="p-4">
-          <div className="flex items-center gap-3">
+        <Card className="min-w-0 p-3 sm:p-4">
+          <div className="flex min-w-0 items-center gap-2 sm:gap-3">
             <div className="p-2 bg-purple-100 dark:bg-purple-900/30 rounded-lg">
               <Package className="w-5 h-5 text-purple-600 dark:text-purple-400" />
             </div>
-            <div>
+            <div className="min-w-0">
               <p className="text-xs text-muted-foreground">Total Units</p>
-              <p className="text-xl font-bold" data-testid="kpi-total-units">{kpiData.totalUnits.toLocaleString()}</p>
+              <p className="truncate text-lg font-bold sm:text-xl" data-testid="kpi-total-units">{kpiData.totalUnits.toLocaleString()}</p>
             </div>
           </div>
         </Card>
@@ -375,22 +375,24 @@ export default function Orders() {
         )}
       </div>
 
-      <Tabs value={activeTab} onValueChange={(val) => { setActiveTab(val); setSelectedOrders(new Set()); }} className="w-full">
-        <TabsList className="grid w-full grid-cols-6 h-auto p-1">
-          {ORDER_STATUSES.map((status) => (
-            <TabsTrigger 
-              key={status.value} 
-              value={status.value}
-              className="flex flex-col gap-1 py-2 px-3 data-[state=active]:shadow-sm"
-              data-testid={`tab-${status.value}`}
-            >
-              <span className="text-xs sm:text-sm font-medium">{status.label}</span>
-              <span className="text-[10px] sm:text-xs text-muted-foreground">
-                ({getOrderCount(status.value).toLocaleString()})
-              </span>
-            </TabsTrigger>
-          ))}
-        </TabsList>
+      <Tabs value={activeTab} onValueChange={(val) => { setActiveTab(val); setSelectedOrders(new Set()); }} className="w-full min-w-0">
+        <div className="w-full overflow-x-auto pb-1 [scrollbar-width:thin]">
+          <TabsList className="inline-flex h-auto min-w-max justify-start p-1">
+            {ORDER_STATUSES.map((status) => (
+              <TabsTrigger
+                key={status.value}
+                value={status.value}
+                className="min-w-[7.25rem] flex-none flex-col gap-1 px-3 py-2 data-[state=active]:shadow-sm"
+                data-testid={`tab-${status.value}`}
+              >
+                <span className="text-xs sm:text-sm font-medium">{status.label}</span>
+                <span className="text-[10px] sm:text-xs text-muted-foreground">
+                  ({getOrderCount(status.value).toLocaleString()})
+                </span>
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </div>
 
         {ORDER_STATUSES.map((status) => (
           <TabsContent key={status.value} value={status.value} className="mt-4">
@@ -2069,11 +2071,11 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
                       <span className="text-xs text-muted-foreground"> (from customer account)</span>
                     </span>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="grid grid-cols-[6rem_minmax(0,1fr)] items-center gap-2">
                     <span className="text-xs text-muted-foreground w-24 flex-shrink-0 flex items-center gap-1">
                       <MapPin className="w-3 h-3" /> Map location
                     </span>
-                    <div className="min-w-[240px] flex-1">
+                    <div className="min-w-0">
                       <CustomerLocationPicker
                         customerId={parseInt(customerId)}
                         customerAddress={selectedCustomer?.address}
@@ -2083,7 +2085,7 @@ function CreateOrderDialog({ open, onOpenChange }: any) {
                       />
                     </div>
                   </div>
-                  <div className="text-xs text-muted-foreground pl-[6.5rem]">For sales data — not the courier address.</div>
+                  <div className="pl-[6.5rem] text-xs text-muted-foreground">For sales data — not the courier address.</div>
                   {isD2CCustomer(selectedCustomer) && (
                     <div className="flex items-center gap-2">
                       <span className="text-xs text-muted-foreground w-24 flex-shrink-0">Channel</span>

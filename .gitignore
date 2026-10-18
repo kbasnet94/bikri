@@ -8,4 +8,5 @@ vite.config.ts.*
 .env.local
 .env.production
 .local/supabase/.temp/
+supabase/.temp/
 script/repair-balances-report.csv

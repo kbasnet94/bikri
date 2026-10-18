@@ -983,12 +983,12 @@ function CustomerDetailsDialog({ customer: customerProp, open, onOpenChange }: a
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl h-[80vh] flex flex-col p-0 gap-0 overflow-hidden rounded-2xl">
-        <div className="p-6 border-b bg-muted/10">
+      <DialogContent className="h-[92dvh] w-[calc(100vw-1rem)] max-w-3xl gap-0 overflow-hidden rounded-2xl p-0 sm:h-[80vh]">
+        <div className="border-b bg-muted/10 p-4 pr-12 sm:p-6 sm:pr-12">
           <div className="flex justify-between items-start">
             <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-2xl font-display font-bold">{customer.name}</h2>
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <h2 className="min-w-0 break-words text-xl font-display font-bold sm:text-2xl">{customer.name}</h2>
                 {(customerTypes || []).length > 0 ? (
                   <Select
                     value={customer.customer_type_id ? String(customer.customer_type_id) : ""}
@@ -997,7 +997,7 @@ function CustomerDetailsDialog({ customer: customerProp, open, onOpenChange }: a
                   >
                     <SelectTrigger
                       className={cn(
-                        "h-7 w-36 text-xs",
+                        "h-7 w-32 text-xs sm:w-36",
                         !customer.customer_type_id && "text-muted-foreground italic"
                       )}
                       data-testid="select-detail-customer-type"
@@ -1014,7 +1014,7 @@ function CustomerDetailsDialog({ customer: customerProp, open, onOpenChange }: a
                   <Badge variant="secondary" className="text-xs">{customer.customer_type.name}</Badge>
                 ) : null}
               </div>
-              <p className="text-muted-foreground flex items-center gap-2 mt-1">
+              <p className="mt-1 flex flex-wrap items-center gap-2 text-muted-foreground">
                 <Wallet className="w-4 h-4" />
                 Balance: <span className={customer.current_balance > 0 ? "text-red-500 font-bold" : "text-green-500 font-bold"}>
                   {formatCurrencyShort(customer.current_balance)}
@@ -1026,8 +1026,8 @@ function CustomerDetailsDialog({ customer: customerProp, open, onOpenChange }: a
         </div>
 
         <Tabs defaultValue="ledger" className="flex-1 flex flex-col min-h-0">
-          <div className="px-6 pt-4">
-            <TabsList className="w-full justify-start border-b rounded-none bg-transparent h-auto p-0 space-x-6">
+          <div className="overflow-x-auto px-4 pt-3 sm:px-6 sm:pt-4">
+            <TabsList className="h-auto min-w-max justify-start space-x-6 rounded-none border-b bg-transparent p-0">
               <TabsTrigger 
                 value="ledger" 
                 className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-0 py-2"
@@ -1043,9 +1043,9 @@ function CustomerDetailsDialog({ customer: customerProp, open, onOpenChange }: a
             </TabsList>
           </div>
 
-          <TabsContent value="ledger" className="flex-1 overflow-auto p-6 space-y-4">
+          <TabsContent value="ledger" className="flex-1 space-y-4 overflow-auto p-4 sm:p-6">
             <div className="flex flex-col gap-3 mb-4">
-              <div className="flex justify-between items-center">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <h3 className="font-semibold text-lg">Transaction History</h3>
                 <Button
                   size="sm"
@@ -1073,7 +1073,7 @@ function CustomerDetailsDialog({ customer: customerProp, open, onOpenChange }: a
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="flex gap-2 ml-auto">
+                <div className="flex w-full gap-2 sm:ml-auto sm:w-auto">
                   <Button 
                     size="sm" 
                     variant="outline" 
@@ -1212,18 +1212,18 @@ function CustomerDetailsDialog({ customer: customerProp, open, onOpenChange }: a
             <div ref={ledgerEndRef} />
           </TabsContent>
 
-          <TabsContent value="info" className="p-6">
-            <div className="grid grid-cols-2 gap-8">
-              <div>
+          <TabsContent value="info" className="flex-1 overflow-y-auto overflow-x-hidden p-4 sm:p-6">
+            <div className="grid min-w-0 grid-cols-1 gap-6 md:grid-cols-2 md:gap-8">
+              <div className="min-w-0">
                 <h4 className="font-medium text-muted-foreground mb-2">Contact Details</h4>
                 <div className="space-y-2">
-                  <div className="flex items-center gap-2"><DollarSign className="w-4 h-4 text-muted-foreground" /> {customer.email || 'N/A'}</div>
-                  <div className="flex items-center gap-2"><Calendar className="w-4 h-4 text-muted-foreground" /> {customer.phone || 'N/A'}</div>
-                  <div className="flex items-center gap-2"><FileText className="w-4 h-4 text-muted-foreground" /> PAN/VAT: {customer.pan_vat_number || 'N/A'}</div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex min-w-0 items-start gap-2 break-all"><DollarSign className="mt-0.5 h-4 w-4 flex-none text-muted-foreground" /> {customer.email || 'N/A'}</div>
+                  <div className="flex min-w-0 items-start gap-2 break-words"><Calendar className="mt-0.5 h-4 w-4 flex-none text-muted-foreground" /> {customer.phone || 'N/A'}</div>
+                  <div className="flex min-w-0 items-start gap-2 break-words"><FileText className="mt-0.5 h-4 w-4 flex-none text-muted-foreground" /> PAN/VAT: {customer.pan_vat_number || 'N/A'}</div>
+                  <div className="flex min-w-0 items-start gap-2">
                     <DollarSign className="w-4 h-4 text-muted-foreground" />
                     {canEditLedger ? (
-                      <div className="flex items-center gap-2">
+                      <div className="flex min-w-0 flex-wrap items-center gap-2">
                         <span>Usual discount:</span>
                         <Input
                           type="number"
@@ -1253,7 +1253,7 @@ function CustomerDetailsDialog({ customer: customerProp, open, onOpenChange }: a
                   </div>
                 </div>
               </div>
-              <div className="space-y-6">
+              <div className="min-w-0 space-y-6">
                 <div>
                   <h4 className="font-medium text-muted-foreground mb-2">Address</h4>
                   <p>{customer.address || 'No address on file.'}</p>
@@ -1261,7 +1261,7 @@ function CustomerDetailsDialog({ customer: customerProp, open, onOpenChange }: a
                 <div>
                   <h4 className="font-medium text-muted-foreground mb-2">Billing Address</h4>
                   {canEditLedger ? (
-                    <div className="flex items-center gap-2">
+                    <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
                       <Input
                         className="h-8 text-sm"
                         placeholder="Registered address for VAT bills"

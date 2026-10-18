@@ -1,0 +1,22 @@
+{
+  "name": "Bikri Business Manager",
+  "short_name": "Bikri",
+  "description": "Manage Hydralyte customers, inventory, orders and collections.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#111315",
+  "theme_color": "#18CF5F",
+  "icons": [
+    {
+      "src": "/pwa-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/pwa-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
