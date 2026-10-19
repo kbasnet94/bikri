@@ -21,7 +21,7 @@
 ## Review Focus
 
 1. A delete attempted on an order-linked entry via direct RPC call must fail with the spec's message and change nothing (Task 1 live test).
-2. An `accounts` user of business A must not be able to delete an entry of business B (Task 1 live test with the demo tenant's `demo.sales@bikri.test` promoted? No: test with the service role impersonation path described in Task 1).
+2. An `accounts`/`admin` user of business A must not be able to delete an entry of business B (Task 1 step 5: demo-tenant admin against a Prime Nutrition entry).
 3. Full Viewer sees the X disabled, never hidden, with the read-only tooltip (Task 4, manual check).
 4. A failed RPC (network drop mid-call) leaves ledger, deletions table and balance consistent — guaranteed by single-function transaction; Task 1 step verifying the function is one body with no COMMIT.
 5. After delete, the dashboard Outstanding Credit and aging totals refresh without reload (Task 3 invalidation keys; Task 4 manual check).
