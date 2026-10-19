@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isDeletableLedgerEntry, deletionBalanceDelta } from './ledger-delete';
+import { isDeletableLedgerEntry, deletionBalanceDelta, ledgerDeleteControl } from './ledger-delete';
 
 describe('isDeletableLedgerEntry', () => {
   it('manual entries (no order) are deletable', () => {
@@ -8,6 +8,21 @@ describe('isDeletableLedgerEntry', () => {
   it('order-linked entries are not', () => {
     expect(isDeletableLedgerEntry({ order_id: 3474 })).toBe(false);
     expect(isDeletableLedgerEntry({ order_id: 0 })).toBe(false);
+  });
+});
+
+describe('ledgerDeleteControl', () => {
+  it('admin/accounts (ledger-edit + write): shown and enabled', () => {
+    expect(ledgerDeleteControl({ canEditLedger: true, canWrite: true })).toEqual({ show: true, disabled: false });
+  });
+  it('full viewer (no write): shown but disabled, never hidden', () => {
+    expect(ledgerDeleteControl({ canEditLedger: false, canWrite: false })).toEqual({ show: true, disabled: true });
+  });
+  it('operations/sales (write but no ledger-edit): hidden', () => {
+    expect(ledgerDeleteControl({ canEditLedger: false, canWrite: true })).toEqual({ show: false, disabled: true });
+  });
+  it('ledger-edit without write (defensive): shown, disabled', () => {
+    expect(ledgerDeleteControl({ canEditLedger: true, canWrite: false })).toEqual({ show: true, disabled: true });
   });
 });
 

@@ -40,7 +40,17 @@ CREATE POLICY ledger_entry_deletions_admin_select ON public.ledger_entry_deletio
     )
   );
 
--- 2. The only door: delete a MANUAL entry, record it, fix the balance. One transaction.
+-- 2. Close the side door: manual rows (order_id IS NULL) can no longer be
+-- deleted directly through the API by anyone; only order-linked rows may be
+-- (the edit-order / payment-status / delete-order flows need that, and they
+-- always filter by order_id). Manual deletes go through the RPC below.
+-- Replaces the policy from supabase-roles-rls.sql.
+DROP POLICY IF EXISTS ledger_manual_delete_accounts ON public.ledger_entries;
+CREATE POLICY ledger_manual_delete_accounts ON public.ledger_entries
+  AS RESTRICTIVE FOR DELETE TO authenticated
+  USING (order_id IS NOT NULL);
+
+-- 3. The only door for manual rows: delete, record it, fix the balance. One transaction.
 CREATE OR REPLACE FUNCTION public.delete_manual_ledger_entry(
   p_entry_id BIGINT,
   p_reason   TEXT DEFAULT NULL
@@ -48,13 +58,17 @@ CREATE OR REPLACE FUNCTION public.delete_manual_ledger_entry(
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_entry        ledger_entries%ROWTYPE;
   v_delta        INTEGER;
   v_new_balance  INTEGER;
 BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'Not allowed to delete ledger entries for this business' USING ERRCODE = '42501';
+  END IF;
+
   SELECT * INTO v_entry
   FROM ledger_entries
   WHERE id = p_entry_id
@@ -108,4 +122,5 @@ END;
 $$;
 
 REVOKE ALL ON FUNCTION public.delete_manual_ledger_entry(BIGINT, TEXT) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.delete_manual_ledger_entry(BIGINT, TEXT) FROM anon;
 GRANT EXECUTE ON FUNCTION public.delete_manual_ledger_entry(BIGINT, TEXT) TO authenticated;

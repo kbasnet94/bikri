@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import { useCustomersWithAging, useAgingTotals, useCustomer, useCreateCustomer, useCreateLedgerEntry, useCustomerLedger, useUpdateCustomerType, useBulkUpdateCustomerType, useUpdateCustomerDiscount, useUpdateCustomerBillingAddress, useDeleteLedgerEntry, type LedgerEntry } from "@/hooks/use-customers";
-import { isDeletableLedgerEntry, deletionBalanceDelta } from "@/lib/ledger-delete";
+import { isDeletableLedgerEntry, deletionBalanceDelta, ledgerDeleteControl } from "@/lib/ledger-delete";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -750,6 +750,7 @@ function CustomerDetailsDialog({ customer: customerProp, open, onOpenChange }: a
   const { user } = useAuth();
   const canWrite = useCanWrite();
   const canEditLedger = canAccess(user?.roles ?? [], "ledger-edit");
+  const deleteControl = ledgerDeleteControl({ canEditLedger, canWrite });
   const ledgerEndRef = useRef<HTMLDivElement>(null);
 
   const updateBillingAddress = useUpdateCustomerBillingAddress();
@@ -1186,12 +1187,12 @@ function CustomerDetailsDialog({ customer: customerProp, open, onOpenChange }: a
                   <TableHead>Description</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead className="text-right">Amount</TableHead>
-                  {canEditLedger && <TableHead className="w-10" />}
+                  {deleteControl.show && <TableHead className="w-10" />}
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredLedger.length === 0 && openingBalance === null ? (
-                  <TableRow><TableCell colSpan={canEditLedger ? 5 : 4} className="text-center py-8 text-muted-foreground">No transactions found.</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={deleteControl.show ? 5 : 4} className="text-center py-8 text-muted-foreground">No transactions found.</TableCell></TableRow>
                 ) : (
                   <>
                     {openingBalance !== null && (
@@ -1205,6 +1206,7 @@ function CustomerDetailsDialog({ customer: customerProp, open, onOpenChange }: a
                         )}>
                           {openingBalance === 0 ? formatCurrency(0) : openingBalance > 0 ? `+${formatCurrency(openingBalance)}` : `-${formatCurrency(Math.abs(openingBalance))}`}
                         </TableCell>
+                        {deleteControl.show && <TableCell />}
                       </TableRow>
                     )}
                     {filteredLedger.map((entry) => (
@@ -1218,14 +1220,14 @@ function CustomerDetailsDialog({ customer: customerProp, open, onOpenChange }: a
                         )}>
                           {isBalanceReducing(entry.type) ? "-" : "+"}{formatCurrency(entry.amount)}
                         </TableCell>
-                        {canEditLedger && (
+                        {deleteControl.show && (
                           <TableCell className="p-1 text-right">
                             {isDeletableLedgerEntry(entry) && (
                               <Button
                                 variant="ghost"
                                 size="icon"
                                 className={cn("h-7 w-7 text-muted-foreground hover:text-destructive", READ_ONLY_CLASS)}
-                                disabled={!canWrite}
+                                disabled={deleteControl.disabled}
                                 title={canWrite ? "Delete entry" : READ_ONLY_HINT}
                                 aria-label="Delete entry"
                                 data-testid={`button-delete-ledger-${entry.id}`}
