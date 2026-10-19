@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "./use-auth";
 import { ledgerBalanceDelta } from '@/lib/ledger-math';
+import { fetchAllRows } from '@/lib/fetch-all-rows';
 
 export interface Customer {
   id: number;
@@ -296,14 +297,20 @@ export function useCustomerLedger(customerId: number) {
   return useQuery({
     queryKey: ['ledger', customerId],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('ledger_entries')
-        .select('*')
-        .eq('customer_id', customerId)
-        .order('entry_date', { ascending: true });
-
-      if (error) throw error;
-      return data as LedgerEntry[];
+      // PostgREST silently caps result sets (~1000 rows). A heavy wholesale
+      // account passes that within a couple of years, after which the ledger
+      // dialog, fiscal-year opening balance and XLSX export all silently miss
+      // the newest entries and close at the wrong balance. Page through.
+      // `id` tiebreaker keeps pages stable when many entries share a date.
+      const rows = await fetchAllRows<LedgerEntry>(() =>
+        supabase
+          .from('ledger_entries')
+          .select('*')
+          .eq('customer_id', customerId)
+          .order('entry_date', { ascending: true })
+          .order('id', { ascending: true })
+      );
+      return rows;
     },
     enabled: !!customerId,
   });
