@@ -506,6 +506,39 @@ export function useCreateLedgerEntry() {
   });
 }
 
+export interface DeleteLedgerEntryResult {
+  customer_id: number;
+  balance_delta: number; // cents applied to customers.current_balance
+  new_balance: number;   // cents
+}
+
+/**
+ * Delete a MANUAL ledger entry via the delete_manual_ledger_entry RPC, which
+ * authorises (admin/accounts of that business), refuses order-linked rows,
+ * records the deletion, removes the row and fixes the balance in one
+ * transaction. The client never deletes ledger rows directly.
+ */
+export function useDeleteLedgerEntry() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (input: { entryId: number; customerId: number; reason?: string }) => {
+      const { data, error } = await supabase.rpc('delete_manual_ledger_entry', {
+        p_entry_id: input.entryId,
+        p_reason: input.reason?.trim() || null,
+      });
+      if (error) throw error;
+      return data as DeleteLedgerEntryResult;
+    },
+    onSuccess: (_data, vars) => {
+      queryClient.invalidateQueries({ queryKey: ['ledger', vars.customerId] });
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      queryClient.invalidateQueries({ queryKey: ['customer-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+    },
+  });
+}
+
 export function useCustomerTypeMap() {
   const { user } = useAuth();
 

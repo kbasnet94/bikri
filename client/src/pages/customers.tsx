@@ -1,5 +1,16 @@
 import { useState, useRef, useEffect, useMemo } from "react";
-import { useCustomersWithAging, useAgingTotals, useCustomer, useCreateCustomer, useCreateLedgerEntry, useCustomerLedger, useUpdateCustomerType, useBulkUpdateCustomerType, useUpdateCustomerDiscount, useUpdateCustomerBillingAddress } from "@/hooks/use-customers";
+import { useCustomersWithAging, useAgingTotals, useCustomer, useCreateCustomer, useCreateLedgerEntry, useCustomerLedger, useUpdateCustomerType, useBulkUpdateCustomerType, useUpdateCustomerDiscount, useUpdateCustomerBillingAddress, useDeleteLedgerEntry, type LedgerEntry } from "@/hooks/use-customers";
+import { isDeletableLedgerEntry, deletionBalanceDelta, ledgerDeleteControl } from "@/lib/ledger-delete";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { usualDiscountLabel } from "@/lib/usual-discount";
 import { findDuplicateCustomers, type DuplicateCandidate } from "@/lib/duplicate-customer-query";
 import { useCurrency } from "@/hooks/use-currency";
@@ -26,7 +37,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Search, Eye, Wallet, Calendar, DollarSign, FileText, Upload, AlertCircle, CheckCircle2, Download, Clock, CalendarClock, AlertTriangle } from "lucide-react";
+import { Plus, Search, Eye, Wallet, Calendar, DollarSign, FileText, Upload, AlertCircle, CheckCircle2, Download, Clock, CalendarClock, AlertTriangle, X } from "lucide-react";
 import {
   getCurrentFiscalYear,
   getFiscalYearDates,
@@ -717,6 +728,9 @@ function CustomerDetailsDialog({ customer: customerProp, open, onOpenChange }: a
   const customer = freshCustomer || customerProp;
   const { data: ledger } = useCustomerLedger(customer.id);
   const createLedgerEntry = useCreateLedgerEntry();
+  const deleteLedgerEntry = useDeleteLedgerEntry();
+  const [entryToDelete, setEntryToDelete] = useState<LedgerEntry | null>(null);
+  const [deleteReason, setDeleteReason] = useState("");
   const { toast } = useToast();
   const { data: customerTypes } = useCustomerTypes();
   const updateCustomerType = useUpdateCustomerType();
@@ -736,6 +750,7 @@ function CustomerDetailsDialog({ customer: customerProp, open, onOpenChange }: a
   const { user } = useAuth();
   const canWrite = useCanWrite();
   const canEditLedger = canAccess(user?.roles ?? [], "ledger-edit");
+  const deleteControl = ledgerDeleteControl({ canEditLedger, canWrite });
   const ledgerEndRef = useRef<HTMLDivElement>(null);
 
   const updateBillingAddress = useUpdateCustomerBillingAddress();
@@ -1172,11 +1187,12 @@ function CustomerDetailsDialog({ customer: customerProp, open, onOpenChange }: a
                   <TableHead>Description</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead className="text-right">Amount</TableHead>
+                  {deleteControl.show && <TableHead className="w-10" />}
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredLedger.length === 0 && openingBalance === null ? (
-                  <TableRow><TableCell colSpan={4} className="text-center py-8 text-muted-foreground">No transactions found.</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={deleteControl.show ? 5 : 4} className="text-center py-8 text-muted-foreground">No transactions found.</TableCell></TableRow>
                 ) : (
                   <>
                     {openingBalance !== null && (
@@ -1190,6 +1206,7 @@ function CustomerDetailsDialog({ customer: customerProp, open, onOpenChange }: a
                         )}>
                           {openingBalance === 0 ? formatCurrency(0) : openingBalance > 0 ? `+${formatCurrency(openingBalance)}` : `-${formatCurrency(Math.abs(openingBalance))}`}
                         </TableCell>
+                        {deleteControl.show && <TableCell />}
                       </TableRow>
                     )}
                     {filteredLedger.map((entry) => (
@@ -1203,6 +1220,24 @@ function CustomerDetailsDialog({ customer: customerProp, open, onOpenChange }: a
                         )}>
                           {isBalanceReducing(entry.type) ? "-" : "+"}{formatCurrency(entry.amount)}
                         </TableCell>
+                        {deleteControl.show && (
+                          <TableCell className="p-1 text-right">
+                            {isDeletableLedgerEntry(entry) && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className={cn("h-7 w-7 text-muted-foreground hover:text-destructive", READ_ONLY_CLASS)}
+                                disabled={deleteControl.disabled}
+                                title={canWrite ? "Delete entry" : READ_ONLY_HINT}
+                                aria-label="Delete entry"
+                                data-testid={`button-delete-ledger-${entry.id}`}
+                                onClick={() => { setDeleteReason(""); setEntryToDelete(entry); }}
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
+                          </TableCell>
+                        )}
                       </TableRow>
                     ))}
                   </>
@@ -1210,6 +1245,70 @@ function CustomerDetailsDialog({ customer: customerProp, open, onOpenChange }: a
               </TableBody>
             </Table>
             <div ref={ledgerEndRef} />
+
+            <AlertDialog open={!!entryToDelete} onOpenChange={(o) => { if (!o) setEntryToDelete(null); }}>
+              <AlertDialogContent>
+                {entryToDelete && (() => {
+                  const delta = deletionBalanceDelta(entryToDelete.type, entryToDelete.amount);
+                  return (
+                    <>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Delete this ledger entry?</AlertDialogTitle>
+                        <AlertDialogDescription asChild>
+                          <div className="space-y-3 text-sm">
+                            <div className="rounded-md border p-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+                              <span className="text-muted-foreground">Date</span>
+                              <span className="font-mono">{format(new Date(entryToDelete.entry_date), 'MMM dd, yyyy')}</span>
+                              <span className="text-muted-foreground">Type</span>
+                              <span className="capitalize">{entryToDelete.type}</span>
+                              <span className="text-muted-foreground">Amount</span>
+                              <span className="font-mono">{formatCurrency(entryToDelete.amount)}</span>
+                              <span className="text-muted-foreground">Description</span>
+                              <span className="break-words">{entryToDelete.description || "-"}</span>
+                            </div>
+                            <p className="font-medium text-destructive">This cannot be undone.</p>
+                            <p>
+                              Balance will change by{" "}
+                              <span className="font-mono font-medium">{delta >= 0 ? "+" : "-"}{formatCurrency(Math.abs(delta))}</span>
+                            </p>
+                            <Input
+                              value={deleteReason}
+                              onChange={(e) => setDeleteReason(e.target.value)}
+                              placeholder="Reason (optional)"
+                              data-testid="input-delete-ledger-reason"
+                            />
+                          </div>
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel disabled={deleteLedgerEntry.isPending}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                          className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                          disabled={deleteLedgerEntry.isPending}
+                          data-testid="button-confirm-delete-ledger"
+                          onClick={async (e) => {
+                            e.preventDefault(); // keep the dialog open while the RPC runs
+                            try {
+                              const result = await deleteLedgerEntry.mutateAsync({
+                                entryId: entryToDelete.id,
+                                customerId: customer.id,
+                                reason: deleteReason,
+                              });
+                              toast({ title: "Ledger entry deleted", description: `New balance: ${formatCurrency(result.new_balance)}` });
+                              setEntryToDelete(null);
+                            } catch (error: any) {
+                              toast({ title: "Could not delete entry", description: error.message, variant: "destructive" });
+                            }
+                          }}
+                        >
+                          {deleteLedgerEntry.isPending ? "Deleting..." : "Delete entry"}
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </>
+                  );
+                })()}
+              </AlertDialogContent>
+            </AlertDialog>
           </TabsContent>
 
           <TabsContent value="info" className="p-6">
